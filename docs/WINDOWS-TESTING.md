@@ -2,19 +2,22 @@
 
 Compile and publish only work on Windows (Valve's `resourcecompiler.exe` and the Steam client), so this is the real test. Go through it in order. Every step says what you should see. If something does not match, stop and send what is listed in "What to send back".
 
-## 1. Get the app (portable, nothing to install)
+## 1. Get the app (one exe, nothing to install)
 
 ### From GitHub Actions (easiest)
 
 1. On GitHub open the repo, then Actions > app.
 2. Open the latest green run. No run yet: click "Run workflow" on `main` and wait about 10 minutes.
-3. At the bottom of the run, under Artifacts, download `AddonStudio-portable-win-x64` (you need to be logged in to GitHub).
-4. Unzip it anywhere, for example `C:\Tools\AddonStudio`. Inside: `AddonStudio.exe`, `addonstudio-core.exe` and `portable.txt`. Keep the two exe files together.
-5. Run `AddonStudio.exe`. It is not signed, so Windows SmartScreen may say "Windows protected your PC": click "More info", then "Run anyway".
-6. Settings and the recent projects list go to a `data` folder next to the exe (because `portable.txt` is there), so the folder can be moved or copied as is. Windows also keeps a small WebView2 cache in `%LOCALAPPDATA%\dev.addonstudio.app`; that is browser cache, not app data.
-7. It needs the Microsoft Edge WebView2 Runtime. Windows 11 and up-to-date Windows 10 already have it; if the window stays blank, install it from https://developer.microsoft.com/microsoft-edge/webview2/.
+3. At the bottom of the run, under Artifacts, download `AddonStudio.exe` (you need to be logged in to GitHub). That one file is the whole app.
+4. Put it anywhere and run it. It is not signed, so Windows SmartScreen may say "Windows protected your PC": click "More info", then "Run anyway".
+5. Where things go:
+   - Settings and the recent projects list: `%APPDATA%\AddonStudio\settings.json`.
+   - The .NET core is embedded in the exe and unpacked once per version to `%LOCALAPPDATA%\dev.addonstudio.app\core\`. The first start takes a second or two longer because of that. A new version replaces the old copy.
+   - WebView2's browser cache: `%LOCALAPPDATA%\dev.addonstudio.app\EBWebView`.
+   - Optional: put an empty `portable.txt` next to `AddonStudio.exe` to keep settings in a `data` folder beside it instead (for a USB stick).
+6. It needs the Microsoft Edge WebView2 Runtime. Windows 11 and up-to-date Windows 10 already have it; if the window stays blank, install it from https://developer.microsoft.com/microsoft-edge/webview2/.
 
-A tag `app-v<version>` (for example `app-v0.1.0`) runs the same build and puts `AddonStudio-<version>-portable-win-x64.zip` on a draft release.
+A tag `app-v<version>` (for example `app-v0.1.0`) runs the same build and puts `AddonStudio-<version>-win-x64.exe` on a draft release.
 
 ### Or build it on the PC
 
@@ -36,10 +39,10 @@ cd app
 npm ci
 npm run tauri build -- --no-bundle
 cd ..
-powershell -ExecutionPolicy Bypass -File scripts\package-portable.ps1
+powershell -ExecutionPolicy Bypass -File scripts\package-exe.ps1
 ```
 
-The portable folder lands in `dist\AddonStudio\` (plus a zip next to it). For a dev window with hot reload instead: `npm run tauri dev` from `app\` (the sidecar must have been built once).
+The app lands in `dist\AddonStudio.exe`. For a dev window with hot reload instead: `npm run tauri dev` from `app\` (the core must have been built once with `build-sidecar`, it gets embedded on every build).
 
 ## 2. First run: Doctor
 

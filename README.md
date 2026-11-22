@@ -2,7 +2,7 @@
 
 A Windows desktop app for CS2 Steam Workshop addons, with each addon kept as a git repo. You edit sources, commit, see history, build only what changed, see exactly what goes into the VPK, and publish to the Workshop with one button (or automatically on a version commit).
 
-It is a Tauri 2 app (React + HeroUI v3, styled like a Windows 11 app) with a .NET 10 core that runs as a sidecar process. The full contract between the parts is [docs/SPEC.md](docs/SPEC.md).
+It is a Tauri 2 app (React + HeroUI v3, styled like a Windows 11 app) with a .NET 10 core that is embedded in the exe and runs as a child process. The full contract between the parts is [docs/SPEC.md](docs/SPEC.md).
 
 ## The pipeline
 
@@ -36,10 +36,10 @@ core/src/AddonStudio.Core/ services: Env, Settings, Projects, Import, Build, Pac
 core/src/AddonStudio.Host/ addonstudio-core: JSON-lines RPC on stdin/stdout + CLI verbs
 core/tests/                xunit tests
 app/                       Vite + React 19 + TypeScript + Tailwind v4 + HeroUI v3
-app/src/rpc/               typed RPC client, Tauri transport (spawns the sidecar) and a mock transport
-app/src-tauri/             Tauri 2 shell: window, plugins (shell, dialog, opener), capabilities (bundling off: the app ships portable)
-scripts/                   build-sidecar.ps1 / build-sidecar.sh, package-portable.ps1, make-icon.mjs
-.github/workflows/app.yml  builds the portable Windows app
+app/src/rpc/               typed RPC client, Tauri transport (talks to the embedded core through Rust commands) and a mock transport
+app/src-tauri/             Tauri 2 shell: window, embedded core (build.rs + src/core.rs), plugins (dialog, opener), no installer
+scripts/                   build-sidecar.ps1 / build-sidecar.sh, package-exe.ps1, make-icon.mjs
+.github/workflows/app.yml  builds AddonStudio.exe
 ```
 
 ## Development
@@ -58,7 +58,7 @@ Open http://localhost:1420. Without Tauri the app uses the mock transport (`app/
 
 ### The real app (Tauri dev)
 
-Build the core sidecar once (and again after core changes), then start Tauri:
+Build the core once (and again after core changes; the Tauri build embeds it), then start Tauri:
 
 ```sh
 scripts/build-sidecar.sh            # Windows: powershell -ExecutionPolicy Bypass -File scripts\build-sidecar.ps1
@@ -66,7 +66,7 @@ cd app
 npm run tauri dev
 ```
 
-`build-sidecar` publishes `core/src/AddonStudio.Host` as a self-contained single file for this machine (target triple from `rustc -vV`, or pass a rid like `win-x64`) and copies it to `app/src-tauri/binaries/addonstudio-core-<triple>[.exe]`, where Tauri's `externalBin` expects it.
+`build-sidecar` publishes `core/src/AddonStudio.Host` as a self-contained single file for this machine (target triple from `rustc -vV`, or pass a rid like `win-x64`) and copies it to `app/src-tauri/binaries/addonstudio-core-<triple>[.exe]`, where `app/src-tauri/build.rs` picks it up to embed.
 
 ### Core
 
@@ -95,13 +95,13 @@ cd app && npx tsc --noEmit && npx vite build
 cd app/src-tauri && cargo check
 ```
 
-## Building the portable app
+## Building the app (one exe)
 
-Addon Studio ships as a portable folder, not an installer: `AddonStudio.exe`, `addonstudio-core.exe` and `portable.txt`. With `portable.txt` next to the exe, settings live in a `data` folder beside it (delete the file to use `%APPDATA%\AddonStudio` instead). It needs the WebView2 Runtime, which Windows 10 and 11 normally have.
+Addon Studio ships as a single `AddonStudio.exe`, no installer and no extra files. The .NET core is zstd-compressed into it at build time (`app/src-tauri/build.rs`) and unpacked once per version to `%LOCALAPPDATA%\dev.addonstudio.app\core\` on first start (`app/src-tauri/src/core.rs`), which then runs it and bridges its stdin/stdout to the UI. Settings live in `%APPDATA%\AddonStudio`; an empty `portable.txt` next to the exe moves them to a `data` folder beside it. It needs the WebView2 Runtime, which Windows 10 and 11 normally have.
 
-On Windows: `scripts\build-sidecar.ps1 -Rid win-x64`, then `npm ci` and `npm run tauri build -- --no-bundle` in `app/`, then `scripts\package-portable.ps1`. The folder lands in `dist/AddonStudio/` with a zip next to it.
+On Windows: `scripts\build-sidecar.ps1 -Rid win-x64`, then `npm ci` and `npm run tauri build -- --no-bundle` in `app/`, then `scripts\package-exe.ps1`. The exe lands in `dist/AddonStudio.exe`.
 
-CI does the same: [.github/workflows/app.yml](.github/workflows/app.yml) runs on "Run workflow" and on tags `app-v*`. It uploads the portable folder as an artifact and, for a tag, attaches the zip to a draft release. A second job runs the core tests and the frontend build on Linux. The app version comes from `app/package.json`.
+CI does the same: [.github/workflows/app.yml](.github/workflows/app.yml) runs on "Run workflow" and on tags `app-v*`. It uploads `AddonStudio.exe` as an artifact (not zipped), runs the embedded-core test on Windows, and for a tag attaches `AddonStudio-<version>-win-x64.exe` to a draft release. A second job runs the core tests and the frontend build on Linux. The app version comes from `app/package.json`.
 
 ## App icon
 

@@ -1,10 +1,10 @@
-// The real transport: spawns the bundled sidecar `binaries/addonstudio-core rpc` with the shell plugin and speaks
-// JSON lines over its stdin/stdout. stdout chunks can split or join lines, so they go through a line buffer.
+// The real transport: talks to the .NET core embedded in the app exe. The Rust side (src-tauri/src/core.rs) unpacks
+// it on first start, runs `addonstudio-core rpc`, and bridges stdin/stdout: core_write sends a line, every stdout line
+// comes back as a "core://stdout" event, stderr as "core://stderr", the end of the process as "core://exit". Each
+// event carries the id core_spawn returned, so lines from a replaced core are ignored.
 // If the core exits on its own, requests it was handling fail with a clear error and it is restarted once; if it
 // exits again the transport closes (client.ts then fails everything and starts a fresh transport on the next call).
 import { createLineBuffer, createListeners, type Transport } from "./transport";
-
-export const SIDECAR = "binaries/addonstudio-core";
 
 /** A running core process, as the transport sees it. */
 export interface CoreProcess {
@@ -21,18 +21,70 @@ export interface CoreHandlers {
 
 export type SpawnCore = (handlers: CoreHandlers) => Promise<CoreProcess>;
 
-/** Spawns the sidecar with the Tauri shell plugin (Windows: no console window, the plugin handles that). */
-export const spawnSidecar: SpawnCore = async (handlers) => {
-  const { Command } = await import("@tauri-apps/plugin-shell");
-  const command = Command.sidecar(SIDECAR, ["rpc"], { encoding: "utf-8" });
-  command.stdout.on("data", (chunk: string) => handlers.stdout(chunk));
-  command.stderr.on("data", (chunk: string) => handlers.stderr(chunk));
-  command.on("close", (payload) => handlers.exit(`exit code ${payload.code ?? "none"}${payload.signal !== null && payload.signal !== undefined ? `, signal ${payload.signal}` : ""}`));
-  command.on("error", (error) => handlers.exit(`error: ${String(error)}`));
-  const child = await command.spawn();
+interface CoreLine {
+  id: number;
+  line: string;
+}
+
+interface CoreExit {
+  id: number;
+  reason: string;
+}
+
+/** Starts the embedded core through the app's Rust commands. */
+export const spawnEmbedded: SpawnCore = async (handlers) => {
+  const { invoke } = await import("@tauri-apps/api/core");
+  const { listen } = await import("@tauri-apps/api/event");
+
+  let id: number | null = null;
+  // events can arrive before core_spawn has returned the id: keep them and replay once it is known
+  const early: Array<() => void> = [];
+  const forThisCore =
+    <T extends { id: number }>(handle: (payload: T) => void) =>
+    (event: { payload: T }) => {
+      const payload = event.payload;
+      if (id === null) {
+        early.push(() => {
+          if (payload.id === id) handle(payload);
+        });
+        return;
+      }
+      if (payload.id === id) handle(payload);
+    };
+
+  const unlisteners: Array<() => void> = [];
+  const stopListening = () => {
+    for (const unlisten of unlisteners.splice(0)) unlisten();
+  };
+
+  unlisteners.push(await listen<CoreLine>("core://stdout", forThisCore((payload) => handlers.stdout(`${payload.line}\n`))));
+  unlisteners.push(await listen<CoreLine>("core://stderr", forThisCore((payload) => handlers.stderr(`${payload.line}\n`))));
+  unlisteners.push(
+    await listen<CoreExit>(
+      "core://exit",
+      forThisCore((payload) => {
+        stopListening();
+        handlers.exit(payload.reason);
+      }),
+    ),
+  );
+
+  try {
+    id = await invoke<number>("core_spawn");
+  } catch (error) {
+    stopListening();
+    throw error instanceof Error ? error : new Error(String(error));
+  }
+
+  for (const replay of early.splice(0)) replay();
+
+  const mine = id;
   return {
-    write: (line) => child.write(line),
-    kill: () => child.kill(),
+    write: (line) => invoke("core_write", { id: mine, line }),
+    kill: async () => {
+      stopListening();
+      await invoke("core_kill", { id: mine });
+    },
   };
 };
 
@@ -49,7 +101,7 @@ export interface TauriTransportOptions {
 }
 
 export async function createTauriTransport(options: TauriTransportOptions = {}): Promise<Transport> {
-  const spawn = options.spawn ?? spawnSidecar;
+  const spawn = options.spawn ?? spawnEmbedded;
   const log = options.log ?? ((line: string) => console.debug("[core]", line));
   let restartsLeft = options.restarts ?? 1;
 
@@ -89,7 +141,7 @@ export async function createTauriTransport(options: TauriTransportOptions = {}):
       stdout: (chunk) => {
         if (mine === generation) stdoutLines(chunk);
       },
-      // the core logs to stderr only; the shell plugin hands it over a line at a time
+      // the core logs to stderr only; it arrives a line at a time
       stderr: (chunk) => {
         for (const line of chunk.replace(/\r?\n$/, "").split(/\r?\n/)) if (line.length > 0) log(line);
       },
