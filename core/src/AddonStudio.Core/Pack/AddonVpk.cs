@@ -8,23 +8,23 @@ using ValvePak;
 namespace AddonStudio.Core.Pack;
 
 /// <summary>
-/// Our copy of AddonPackager.Pack and Stage (CS2WorkshopManager 1.5.0): the same file selection (CollectFiles),
-/// ValvePak Package with 100 MiB chunks and multiChunk entries, &lt;name&gt;_dir.vpk plus chunks plus publish_data.txt
-/// in the same format. The differences: the total size cap is a parameter instead of the 3 GiB constant, it writes
-/// into any folder, and that folder is never wiped (only the files this writes are replaced).
+/// Our copy of AddonPackager.Pack and Stage (CS2WorkshopManager 1.5.0): ValvePak Package with 100 MiB chunks and
+/// multiChunk entries, &lt;name&gt;_dir.vpk plus chunks plus publish_data.txt in the same format. The differences: the
+/// files come from a PackSelection (everything by default, Valve's whitelist only when the project asks for it), the
+/// total size cap is a parameter instead of the 3 GiB constant, it writes into any folder, and that folder is never
+/// wiped (only the files this writes are replaced).
 /// </summary>
 public static partial class AddonVpk
 {
     /// <summary>Writes &lt;outDir&gt;/&lt;vpkName&gt;_dir.vpk, its chunks and publish_data.txt. Returns the full paths written.</summary>
     public static List<string> Stage(
         string addonPath,
-        string gameInfoPath,
+        PackSelection selection,
         string outDir,
         string vpkName,
         string sourceFolder,
         string title,
         DateTimeOffset publishTime,
-        AddonRules? rules,
         long limitBytes,
         CancellationToken ct = default)
     {
@@ -32,18 +32,18 @@ public static partial class AddonVpk
         RemoveStale(outDir, vpkName);
 
         var directoryFile = Path.Combine(outDir, $"{vpkName}_dir.vpk");
-        Pack(addonPath, gameInfoPath, directoryFile, rules, limitBytes, ct);
+        Pack(addonPath, selection, directoryFile, limitBytes, ct);
         WritePublishData(Path.Combine(outDir, AddonPackager.PublishDataFileName), title, sourceFolder, publishTime);
 
         return OwnFiles(outDir, vpkName);
     }
 
-    /// <summary>AddonPackager.Pack with limitBytes in place of MaxTotalSize. Returns the packed build-relative paths.</summary>
-    public static List<string> Pack(string addonPath, string gameInfoPath, string outputDirectoryFile, AddonRules? rules, long limitBytes, CancellationToken ct = default)
+    /// <summary>AddonPackager.Pack with the selection's files and limitBytes in place of MaxTotalSize. Returns the packed build-relative paths.</summary>
+    public static List<string> Pack(string addonPath, PackSelection selection, string outputDirectoryFile, long limitBytes, CancellationToken ct = default)
     {
         addonPath = Path.TrimEndingDirectorySeparator(Path.GetFullPath(addonPath));
 
-        var files = AddonPackager.CollectFiles(addonPath, gameInfoPath, rules);
+        var files = selection.Collect(addonPath);
 
         using var package = new Package();
         package.WriteChunkSize = AddonPackager.ChunkSize;

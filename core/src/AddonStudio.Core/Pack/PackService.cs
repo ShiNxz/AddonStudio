@@ -6,9 +6,10 @@ using CS2WorkshopManager;
 namespace AddonStudio.Core.Pack;
 
 /// <summary>
-/// SPEC section 5 and 6.6: what AddonPackager.CollectFiles packs from the build dir (Valve's gameinfo rules and skips,
-/// workshop.json globs first), each file's origin from build-state.json, the diff against last-publish.json, and
-/// exporting the VPK chunks with our own copy of AddonPackager.Stage.
+/// SPEC section 5 and 6.6: what goes into the VPK (PackSelection: every build dir file by default, Valve's gameinfo
+/// whitelist when workshop.json pack.valveWhitelist is on, workshop.json globs on top), what the whitelist would drop,
+/// each file's origin from build-state.json, the diff against last-publish.json, and exporting the VPK chunks with our
+/// own copy of AddonPackager.Stage.
 /// </summary>
 public sealed class PackService : IPackService
 {
@@ -34,12 +35,18 @@ public sealed class PackService : IPackService
         return Task.Run(() => Export(path, outDir, ct), ct);
     }
 
-    public AddonRules BuildRules(string path)
+    public PackSelection Selection(string path)
     {
         var paths = projects.GetPaths(Paths.Full(path));
         var config = projects.LoadConfig(paths.Repo);
 
-        return BuildRules(config.Pack, paths.BuildDir);
+        return Selection(config.Pack, paths.BuildDir, GameInfo(paths));
+    }
+
+    /// <summary>The pack mode and rules of a workshop.json pack block, globs expanded against the build dir.</summary>
+    internal static PackSelection Selection(PackConfig pack, string? buildDir, string? gameInfo)
+    {
+        return new PackSelection(pack.ValveWhitelist, BuildRules(pack, buildDir), gameInfo);
     }
 
     /// <summary>
@@ -98,12 +105,22 @@ public sealed class PackService : IPackService
         var repo = paths.Repo;
         var (buildDir, gameInfo) = RequireInputs(paths, requireBuildDir: false);
         var config = projects.LoadConfig(repo);
-
-        var files = Directory.Exists(buildDir)
-            ? AddonPackager.CollectFiles(buildDir, gameInfo, BuildRules(config.Pack, buildDir))
-            : [];
-
+        var selection = Selection(config.Pack, buildDir, gameInfo);
+        var hasBuildDir = Directory.Exists(buildDir);
         var fullBuildDir = Paths.Full(buildDir);
+
+        // both modes, so the Package tab can show what Valve's whitelist drops whichever one is on
+        var walk = hasBuildDir ? selection.Walk(buildDir) : new PackWalk([], []);
+        var whitelist = hasBuildDir ? selection.CollectWhitelist(buildDir) : [];
+        var files = selection.ValveWhitelist ? whitelist : walk.Packed;
+
+        var inWhitelist = new HashSet<string>(whitelist.Select(file => AddonPackager.GetRelativePath(fullBuildDir, file.FullName)), Paths.RelComparer);
+        var whitelistDropped = walk.Packed
+            .Select(file => new PackWhitelistFile(AddonPackager.GetRelativePath(fullBuildDir, file.FullName), file.Length))
+            .Where(file => !inWhitelist.Contains(file.Path))
+            .OrderBy(file => file.Path, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
         var state = BuildState.Load(repo);
         var compiled = state.RecordedOutputs();
         var contentFiles = new HashSet<string>(Paths.ListFiles(paths.Content), Paths.RelComparer);
@@ -169,7 +186,10 @@ public sealed class PackService : IPackService
             limitBytes(),
             byType,
             last == null ? null : new PackLastPublish(last.At, last.WorkshopId, last.Commit),
-            new PackChanges(added, changed, removed.Count));
+            new PackChanges(added, changed, removed.Count),
+            selection.ValveWhitelist,
+            whitelistDropped,
+            walk.Skipped);
     }
 
     private PackExportResult Export(string path, string? outDir, CancellationToken ct)
@@ -189,13 +209,12 @@ public sealed class PackService : IPackService
 
         var written = AddonVpk.Stage(
             buildDir,
-            gameInfo,
+            Selection(config.Pack, buildDir, gameInfo),
             directory,
             name,
             addon,
             config.Title,
             DateTimeOffset.UtcNow,
-            BuildRules(config.Pack, buildDir),
             limitBytes(),
             ct);
 
@@ -209,7 +228,7 @@ public sealed class PackService : IPackService
             throw new AddonStudioException(ErrorCodes.Cs2Missing, "CS2 was not found, so there is no build folder to pack.");
         }
 
-        var gameInfo = paths.GameInfoPath is { } own && File.Exists(own) ? own : env.GameInfoPath();
+        var gameInfo = GameInfo(paths);
 
         if (gameInfo == null || !File.Exists(gameInfo))
         {
@@ -222,6 +241,11 @@ public sealed class PackService : IPackService
         }
 
         return (paths.BuildDir, gameInfo);
+    }
+
+    private string? GameInfo(ProjectPaths paths)
+    {
+        return paths.GameInfoPath is { } own && File.Exists(own) ? own : env.GameInfoPath();
     }
 
     private static string? SafeHash(FileHasher hasher, string path)

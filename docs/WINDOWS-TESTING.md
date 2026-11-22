@@ -91,6 +91,17 @@ Use an addon you already have in CS2 (the HUD is the good first one).
 3. When the game is up, open the console and load a map (`map de_dust2`, or the map you normally test with).
 4. Check that the HUD looks and works like before the import. Anything missing usually means a file that should have been `prebuilt` or `decompile` was skipped: look at the Package tab for it and send the import plan.
 
+## 5b. Check what gets packed
+
+Packing takes everything in the build folder by default. Valve's workshop manager only packs the folders `gameinfo.gi` whitelists, so files elsewhere (custom rank badges under `panorama/images/icons/skillgroups/`, models under `characters/`) never reached the Workshop.
+
+1. Package tab. The card on top says "Packing: everything".
+2. It lists the files outside Valve's whitelist ("N files outside Valve's whitelist, packed anyway"). Open "Files": every file there used to be left out. If your addon has rank badges or models outside the `custom_game` folders, they are in this list.
+3. In the file table below, search for a few of them (for example `skillgroup` or `characters`): they are in the VPK.
+4. "N files left out" (if shown) should only hold junk and source files (`.psd`, `.fbx`, raw `.xml`/`.css`/`.js`, `Thumbs.db`...). Anything there that the game needs: add an include rule for it in Settings > Packing and tell us the path.
+5. Export VPK, then open the `_dir.vpk` with any VPK viewer (Source 2 Viewer / ValveResourceFormat) and check `panorama/images/icons/skillgroups/` and `characters/` are inside.
+6. Optional: Settings > Packing > turn on "Valve whitelist only", Save. The Package tab now says "Packing: Valve whitelist only" and warns that the whitelist leaves those files out, and Publish shows the same warning. Turn it off again and Save.
+
 Close the game before you publish.
 
 ## 6. Publish to a NEW unlisted test item first
@@ -98,12 +109,12 @@ Close the game before you publish.
 Do not touch the real item until the test item works.
 
 1. Settings tab: clear "Workshop ID" (so a new item is created), set Visibility to `unlisted`, add " TEST" to the title. Save.
-2. Package tab: check the file list and total size look right.
+2. Package tab: check the file list and total size look right, and that it says "Packing: everything" (section 5b).
 3. Publish tab: change note "test upload", no version, "push tags" off, "GitHub release" off. Click Publish.
 4. Stages go build > pack > upload > tag > done. The result shows the new item's link. Its id is written into `workshop.json`.
 5. If it says you need to accept the Workshop agreement: open https://steamcommunity.com/sharedfiles/workshoplegalagreement, accept, publish again.
 6. Open the item page. The Steam status card goes from processing to live once Steam has processed the upload (can take a few minutes).
-7. Subscribe to the test item, start CS2 normally (not the tools) and check the HUD from the Workshop copy.
+7. Subscribe to the test item, start CS2 normally (not the tools) and check the HUD from the Workshop copy. Files from the 5b list (rank badges on the scoreboard, models) must show up there too.
 8. History tab: the commit now has a "Deployed" badge with the test item. The local `deploy/...` tag points at the test item; delete it if you like with `git tag -d deploy/<date>-<time>`.
 
 ## 7. Publish the real item

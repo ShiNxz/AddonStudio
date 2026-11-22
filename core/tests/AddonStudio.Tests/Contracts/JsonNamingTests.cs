@@ -32,6 +32,7 @@ public sealed class JsonNamingTests
         Assert.Equal(["changed", "full", "files"], System.Enum.GetValues<BuildMode>().Select(Enum));
         Assert.Equal(["added", "changed", "same"], System.Enum.GetValues<FileChange>().Select(Enum));
         Assert.Equal(["compiled", "prebuilt", "other"], System.Enum.GetValues<PackOrigin>().Select(Enum));
+        Assert.Equal(["junk", "sourceOnly", "excluded", "blocked"], System.Enum.GetValues<PackSkipReason>().Select(Enum));
         Assert.Equal(["build", "pack", "upload", "tag", "push", "release", "done"], System.Enum.GetValues<PublishStage>().Select(Enum));
         Assert.Equal(["live", "processing", "unknown"], System.Enum.GetValues<LiveState>().Select(Enum));
         Assert.Equal(
@@ -97,7 +98,8 @@ public sealed class JsonNamingTests
             json.Select(property => property.Key));
         Assert.Null(json["workshopId"]);
         Assert.Equal("private", json["visibility"]!.GetValue<string>());
-        Assert.Equal(["include", "exclude"], json["pack"]!.AsObject().Select(property => property.Key));
+        Assert.Equal(["valveWhitelist", "include", "exclude"], json["pack"]!.AsObject().Select(property => property.Key));
+        Assert.False(json["pack"]!["valveWhitelist"]!.GetValue<bool>());
         Assert.Equal(["enabled", "pattern", "githubRelease"], json["autoPublish"]!.AsObject().Select(property => property.Key));
         Assert.Equal(AutoPublishConfig.DefaultPattern, json["autoPublish"]!["pattern"]!.GetValue<string>());
 
@@ -161,9 +163,15 @@ public sealed class JsonNamingTests
         Assert.Equal(["path", "size", "change", "origin"], file.Select(property => property.Key));
         Assert.Null(file["change"]);
 
-        var contents = Object(new PackContents([], [], 0, 0, 3L * 1024 * 1024 * 1024, [new PackTypeStat("Models", 1, 5)], null, new PackChanges(0, 0, 0)));
-        Assert.Equal(["files", "removed", "fileCount", "totalSize", "limitBytes", "byType", "lastPublish", "changes"], contents.Select(property => property.Key));
+        var contents = Object(new PackContents([], [], 0, 0, 3L * 1024 * 1024 * 1024, [new PackTypeStat("Models", 1, 5)], null, new PackChanges(0, 0, 0),
+            false, [new PackWhitelistFile("characters/a.vmdl_c", 3)], [new PackSkippedFile("x.tmp", 1, PackSkipReason.SourceOnly)]));
+        Assert.Equal(
+            ["files", "removed", "fileCount", "totalSize", "limitBytes", "byType", "lastPublish", "changes", "valveWhitelist", "whitelistDropped", "skipped"],
+            contents.Select(property => property.Key));
         Assert.Equal(["label", "count", "size"], contents["byType"]![0]!.AsObject().Select(property => property.Key));
+        Assert.Equal(["path", "size"], contents["whitelistDropped"]![0]!.AsObject().Select(property => property.Key));
+        Assert.Equal(["path", "size", "reason"], contents["skipped"]![0]!.AsObject().Select(property => property.Key));
+        Assert.Equal("sourceOnly", contents["skipped"]![0]!["reason"]!.GetValue<string>());
     }
 
     [Fact]

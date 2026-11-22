@@ -14,6 +14,7 @@ namespace AddonStudio.Core.Publish;
 /// <param name="PublishedFileId">Null creates a new item.</param>
 /// <param name="Description">Null leaves Steam's description as it is.</param>
 /// <param name="PreviewPath">Full path of the thumbnail, null leaves the published one.</param>
+/// <param name="Selection">What goes into the VPK (the project's pack mode and workshop.json rules).</param>
 internal sealed record UploadRequest(
     string Cs2Path,
     string AddonName,
@@ -23,7 +24,7 @@ internal sealed record UploadRequest(
     Visibility Visibility,
     IReadOnlyList<string> Tags,
     string? PreviewPath,
-    AddonRules Rules,
+    PackSelection Selection,
     string ChangeNote,
     bool AllowSourceFolderChange);
 
@@ -46,7 +47,7 @@ internal interface IWorkshopUploader
 /// The real upload (SPEC 5 "our own uploader"): mirrors WorkshopManager.PublishAsync step for step (source folder check,
 /// CreateItem when new, StartItemUpdate, title, description, visibility, preview, SetItemContent of our staging folder,
 /// tags, SubmitItemUpdate with GetItemUpdateProgress) over our own SteamConnection, and stages with AddonVpk so the
-/// maxPackBytes setting is the cap instead of the library's 3 GiB constant.
+/// project's PackSelection picks the files and the maxPackBytes setting is the cap instead of the library's 3 GiB constant.
 /// </summary>
 internal sealed class SteamWorkshopUploader(Func<long> limitBytes) : IWorkshopUploader
 {
@@ -87,7 +88,6 @@ internal sealed class SteamWorkshopUploader(Func<long> limitBytes) : IWorkshopUp
     {
         var addonsRoot = Path.Combine(request.Cs2Path, "game", "csgo_addons");
         var addonPath = Path.Combine(addonsRoot, request.AddonName);
-        var gameInfo = Path.Combine(request.Cs2Path, "game", "csgo", "gameinfo.gi");
         var limit = limitBytes();
 
         // what can fail without Steam is checked before a new item is created, so a mistake leaves no empty item behind
@@ -101,7 +101,7 @@ internal sealed class SteamWorkshopUploader(Func<long> limitBytes) : IWorkshopUp
             WorkshopManager.ValidateThumbnailImage(request.PreviewPath);
         }
 
-        var totalSize = AddonPackager.CollectFiles(addonPath, gameInfo, request.Rules).Sum(file => file.Length);
+        var totalSize = request.Selection.Collect(addonPath).Sum(file => file.Length);
 
         if (totalSize >= limit)
         {
@@ -156,8 +156,8 @@ internal sealed class SteamWorkshopUploader(Func<long> limitBytes) : IWorkshopUp
             Directory.Delete(stagingPath, recursive: true);
         }
 
-        AddonVpk.Stage(addonPath, gameInfo, stagingPath, publishedFileId.ToString(CultureInfo.InvariantCulture), request.AddonName, request.Title,
-            publishTime, request.Rules, limit, CancellationToken.None);
+        AddonVpk.Stage(addonPath, request.Selection, stagingPath, publishedFileId.ToString(CultureInfo.InvariantCulture), request.AddonName, request.Title,
+            publishTime, limit, CancellationToken.None);
 
         var handle = ugc.StartItemUpdate(SteamConnection.AppId, publishedFileId);
         ugc.SetItemTitle(handle, request.Title);

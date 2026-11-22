@@ -51,7 +51,8 @@ export function ProjectSettingsView({ project, refreshProject }: ProjectViewProp
   const set = <K extends keyof WorkshopConfig>(key: K, value: WorkshopConfig[K]) => setDraft((current) => ({ ...current, [key]: value }));
   const setAuto = <K extends keyof WorkshopConfig["autoPublish"]>(key: K, value: WorkshopConfig["autoPublish"][K]) =>
     setDraft((current) => ({ ...current, autoPublish: { ...current.autoPublish, [key]: value } }));
-  const setPack = (key: "include" | "exclude", value: string[]) => setDraft((current) => ({ ...current, pack: { ...current.pack, [key]: value } }));
+  const setPack = <K extends keyof WorkshopConfig["pack"]>(key: K, value: WorkshopConfig["pack"][K]) =>
+    setDraft((current) => ({ ...current, pack: { ...current.pack, [key]: value } }));
 
   const save = async () => {
     if (invalid || !dirty) return;
@@ -180,14 +181,26 @@ export function ProjectSettingsView({ project, refreshProject }: ProjectViewProp
         </TextField>
       </Panel>
 
-      <Panel title="Packing" description="Globs relative to the build folder. Your rules go before Valve's own.">
-        <div className="grid gap-4 md:grid-cols-2">
-          <Field label="Include" error={errors.include} description="Files Valve's rules would skip, packed anyway.">
-            <ListEditor values={draft.pack.include} onChange={(values) => setPack("include", values)} placeholder="maps/**/*.vpk" ariaLabel="Add an include rule" />
-          </Field>
-          <Field label="Exclude" error={errors.exclude} description="Never packed.">
-            <ListEditor values={draft.pack.exclude} onChange={(values) => setPack("exclude", values)} placeholder="**/*.psd" ariaLabel="Add an exclude rule" />
-          </Field>
+      <Panel title="Packing" description="By default every file in the build folder goes into the VPK, except junk and source files. The Package tab shows what is left out.">
+        <div className="flex flex-col gap-4">
+          <SwitchRow
+            label="Valve whitelist only"
+            description="Pack only the folders CS2's gameinfo.gi lists (panorama/.../custom_game, overheadmaps, map_icons and the like), like Valve's workshop manager. Anything else in the build folder is left out."
+            isSelected={draft.pack.valveWhitelist}
+            onChange={(value) => setPack("valveWhitelist", value)}
+          />
+          <div className="grid gap-4 md:grid-cols-2">
+            <Field
+              label="Include"
+              error={errors.include}
+              description={draft.pack.valveWhitelist ? "Packed even outside Valve's whitelist." : "Packed even when it looks like junk or a source file."}
+            >
+              <ListEditor values={draft.pack.include} onChange={(values) => setPack("include", values)} placeholder="maps/**/*.vpk" ariaLabel="Add an include rule" />
+            </Field>
+            <Field label="Exclude" error={errors.exclude} description="Never packed. Globs relative to the build folder, excludes win over includes.">
+              <ListEditor values={draft.pack.exclude} onChange={(values) => setPack("exclude", values)} placeholder="**/*.psd" ariaLabel="Add an exclude rule" />
+            </Field>
+          </div>
         </div>
       </Panel>
 

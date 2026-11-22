@@ -3,10 +3,23 @@ using AddonStudio.Core.Util;
 
 namespace AddonStudio.Core.Contracts;
 
-/// <summary>workshop.json pack rules: globs relative to the build dir, user rules go before Valve's gameinfo rules.</summary>
+/// <summary>
+/// workshop.json pack settings (SPEC 5 "What goes into the VPK"). Globs are relative to the build dir, the first matching
+/// rule decides and excludes come first.
+/// </summary>
 public sealed record PackConfig
 {
+    /// <summary>
+    /// "Valve whitelist only". False (the default) packs every file in the build dir except Valve's tool files, hidden
+    /// files, junk and source-only files. True packs only the folders gameinfo.gi AddonConfig/VpkDirectories lists, like
+    /// Valve's workshop manager.
+    /// </summary>
+    public bool ValveWhitelist { get; init; }
+
+    /// <summary>Packed even when the junk/source-only filter (default) or Valve's whitelist (valveWhitelist) would leave them out.</summary>
     public IReadOnlyList<string> Include { get; init; } = [];
+
+    /// <summary>Never packed.</summary>
     public IReadOnlyList<string> Exclude { get; init; } = [];
 }
 
@@ -69,7 +82,7 @@ public sealed record WorkshopConfig
         Visibility = Visibility.Private,
         Tags = ["Custom"],
         Preview = "preview.png",
-        Pack = new PackConfig { Include = [], Exclude = ["**/*.psd"] },
+        Pack = new PackConfig { ValveWhitelist = false, Include = [], Exclude = ["**/*.psd"] },
         AutoBuild = true,
         AutoPublish = new AutoPublishConfig(),
     };

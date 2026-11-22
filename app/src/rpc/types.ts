@@ -58,7 +58,11 @@ export type AppSettingsPatch = Partial<Omit<AppSettings, "recentProjects">>;
 export type Visibility = "public" | "friendsOnly" | "private" | "unlisted";
 
 export interface PackConfig {
+  /** "Valve whitelist only": pack just the folders gameinfo.gi AddonConfig/VpkDirectories lists. Off (default) packs every file in the build folder except junk and sources. */
+  valveWhitelist: boolean;
+  /** Packed even when the junk/source filter (default) or Valve's whitelist would leave them out. */
   include: string[];
+  /** Never packed. */
   exclude: string[];
 }
 
@@ -265,6 +269,21 @@ export interface PackChanges {
   removed: number;
 }
 
+/** A file the default mode packs that Valve's whitelist leaves out. */
+export interface PackWhitelistFile {
+  path: string;
+  size: number;
+}
+
+export type PackSkipReason = "junk" | "sourceOnly" | "excluded" | "blocked";
+
+/** A build folder file the default mode leaves out (Valve's tool files and hidden files are not listed). */
+export interface PackSkippedFile {
+  path: string;
+  size: number;
+  reason: PackSkipReason;
+}
+
 export interface PackContents {
   files: PackFile[];
   removed: string[];
@@ -275,6 +294,12 @@ export interface PackContents {
   byType: PackTypeStat[];
   lastPublish: PackLastPublish | null;
   changes: PackChanges;
+  /** The project's pack mode (workshop.json pack.valveWhitelist). */
+  valveWhitelist: boolean;
+  /** Files the default mode packs and Valve's whitelist would drop: packed when valveWhitelist is off, left out when it is on. */
+  whitelistDropped: PackWhitelistFile[];
+  /** What the default mode leaves out and why. Only shown in the default mode. */
+  skipped: PackSkippedFile[];
 }
 
 /** files are full paths. */

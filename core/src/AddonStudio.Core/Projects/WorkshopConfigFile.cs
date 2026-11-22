@@ -84,6 +84,7 @@ public static partial class WorkshopConfigFile
             Preview = ReadString(obj, "preview", errors, nullable: true),
             Pack = new PackConfig
             {
+                ValveWhitelist = (pack == null ? null : ReadBool(pack, "valveWhitelist", errors, "pack.")) ?? false,
                 Include = (pack == null ? null : ReadStrings(pack, "include", errors, "pack.")) ?? [],
                 Exclude = (pack == null ? null : ReadStrings(pack, "exclude", errors, "pack.")) ?? [],
             },

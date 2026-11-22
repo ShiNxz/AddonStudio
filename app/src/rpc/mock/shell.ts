@@ -271,7 +271,7 @@ function newConfig(addon: string, title: string): WorkshopConfig {
     visibility: "private",
     tags: ["Custom"],
     preview: "preview.png",
-    pack: { include: [], exclude: ["**/*.psd"] },
+    pack: { valveWhitelist: false, include: [], exclude: ["**/*.psd"] },
     autoBuild: true,
     autoPublish: { enabled: false, pattern: "^v(\\d+\\.\\d+\\.\\d+)\\b", githubRelease: false },
   };

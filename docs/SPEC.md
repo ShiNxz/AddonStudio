@@ -19,7 +19,8 @@ content/ (sources, in git)
    v
 <CS2>/game/csgo_addons/<addon>/   = build dir (Valve's location, regenerated, never in git)
    ^ prebuilt/ copied in as-is (compiled files we have no source for, e.g. models taken from other items)
-   | pack: same rules and format as Valve's workshop manager (VPK v2, 100 MB chunks, 3 GiB cap)
+   | pack: every file in the build dir minus junk and sources (Valve's gameinfo whitelist only when the project opts in),
+   |       same format as Valve's workshop manager (VPK v2, 100 MB chunks, 3 GiB cap)
    v
 <id>_dir.vpk + _000.vpk... + publish_data.txt
    | upload through the running Steam client (ISteamUGC)
@@ -51,7 +52,11 @@ Steam Workshop item -> Steam processes it -> live
   "visibility": "private",          // "public" | "friendsOnly" | "private" | "unlisted"
   "tags": ["Custom"],
   "preview": "preview.png",         // repo-relative, optional
-  "pack": { "include": [], "exclude": ["**/*.psd"] },   // globs relative to the build dir; user rules go before Valve's gameinfo rules
+  "pack": {
+    "valveWhitelist": false,        // "Valve whitelist only": true packs only gameinfo.gi's VpkDirectories folders (section 5)
+    "include": [],                  // globs relative to the build dir, packed even when the filter or the whitelist would skip them
+    "exclude": ["**/*.psd"]         // never packed; the first matching rule decides and excludes come first
+  },
   "autoBuild": true,                // rebuild changed sources when files change
   "autoPublish": {
     "enabled": false,
@@ -142,8 +147,14 @@ Dependencies: scan text roots for references and keep the ones that resolve to a
 ## 5. Packing and publishing
 
 - The pack size cap is a user setting: `AppSettings.maxPackBytes`, default 3 GiB (3221225472, Valve's own tool limit). Above 3 GiB the UI shows a warning ("Valve's tool caps uploads at 3 GB, bigger uploads are untested"). Single files stay under 2 GiB (VPK stores sizes as int32), that is not configurable.
-- `CS2WorkshopManager` (MIT, NuGet 1.5.0, net10.0) hard-codes the 3 GiB cap inside `AddonPackager.Pack` and `WorkshopManager.PublishAsync`, so we use only its file selection and checks: `AddonPackager.CollectFiles/GetContents` (Valve's gameinfo rules and skipped files), `WorkshopManager.GetConflictingSourceFolder`, `WorkshopManager.GetPublishedItemsAsync`, `GameFolderLocator` via `FromSteamInstall`. It reads files from `<cs2>/game/csgo_addons/<addon>`, which is our build dir. Map `workshop.json` pack globs to `AddonRules` (`Rule(Exclude, Pattern)`). AddonRules match path prefixes, not globs, so `IPackService.BuildRules` expands each glob against the build dir's files into one rule per match (excludes first); a pattern without wildcards stays a prefix.
-- Our own packer (`Pack/`) mirrors `AddonPackager.Pack` and `Stage` exactly (ValvePak `Package`, `WriteChunkSize` 100 MiB, `AddFile(..., multiChunk: true)`, `vpks/<id>/<id>_dir.vpk` plus chunks plus `publish_data.txt` in the same format) but checks `maxPackBytes` instead of the constant.
+- What goes into the VPK (`Pack/PackSelection.cs`, the one selection pack.contents, pack.export and publish.run use). The build dir `<cs2>/game/csgo_addons/<addon>` holds everything the project compiles plus the prebuilt/ mirror, and by default all of it is packed:
+  - Never packed, in any mode (what `AddonPackager.CollectFiles` skips too): Valve's tool files (`tools_asset_info.bin`, `readonly_tools_asset_info.bin`, `tools_thumbnail_cache.*`, `_bakeresourcecache/`, `_vrad3/`), names starting with `.` (`.DS_Store`, `.git/`...), and the types Valve's tool refuses (`.bat .cmd .com .dll .exe .msi .rar .reg .los .zip`, matched on the extension; AddonPackager matches them anywhere in the path, so `x.compact_png.vtex_c` would be lost there).
+  - Then the `workshop.json` rules in order, the first match decides (excludes come first): an exclude drops the file, an include packs it.
+  - A file no rule names is packed unless it is junk (`Thumbs.db`, `ehthumbs.db`, `desktop.ini`, `*.tmp`, `*.temp`, `*.bak`, `*.log`, names ending in `~`) or source-only: a root of the section 4 table at that path (panorama xml/css/js, svg, vmdl, vmat, vtex, vpcf, vsndevts, vdata, vmap, panorama images, sounds) or an image/model/audio/art source anywhere (`.psd .tga .png .jpg .jpeg .exr .tif .tiff .fbx .dmx .obj .blend .max .ma .mb .wav .mp3`). CS2 loads the compiled `_c` form of those, never the file itself.
+  - `pack.valveWhitelist: true` ("Valve whitelist only" in the project settings) packs exactly what `AddonPackager.CollectFiles` does instead: only the folders `gameinfo.gi` `AddonConfig/VpkDirectories` lists (panorama `custom_game` folders, overheadmaps, map_icons and the like), with the workshop.json rules before Valve's. It used to be the only mode and silently dropped files outside those folders (rank badges under `panorama/images/icons/`, models under `characters/`), so it is opt-in now.
+  - `pack.contents` always returns both views: `whitelistDropped` (files the default mode packs that the whitelist would drop) and `skipped` (what the default mode leaves out, with the reason), so the Package tab can show them in either mode.
+- `CS2WorkshopManager` (MIT, NuGet 1.5.0, net10.0) hard-codes the 3 GiB cap inside `AddonPackager.Pack` and `WorkshopManager.PublishAsync`, so we use only its whitelist selection and checks: `AddonPackager.CollectFiles/GetContents` (Valve's gameinfo rules and skipped files, for the whitelist mode and the `whitelistDropped` list), `WorkshopManager.GetConflictingSourceFolder`, `WorkshopManager.GetPublishedItemsAsync`, `GameFolderLocator` via `FromSteamInstall`. Map `workshop.json` pack globs to `AddonRules` (`Rule(Exclude, Pattern)`). AddonRules match path prefixes, not globs, so `PackService.BuildRules` expands each glob against the build dir's files into one rule per match (excludes first); a pattern without wildcards stays a prefix. Both modes read the same rules.
+- Our own packer (`Pack/`) mirrors `AddonPackager.Pack` and `Stage` exactly (ValvePak `Package`, `WriteChunkSize` 100 MiB, `AddFile(..., multiChunk: true)`, `vpks/<id>/<id>_dir.vpk` plus chunks plus `publish_data.txt` in the same format) but takes its files from the project's `PackSelection` and checks `maxPackBytes` instead of the constant.
 - Our own uploader (`Publish/`) mirrors `WorkshopManager.PublishAsync` (create item when new, `StartItemUpdate`, title, description, visibility, preview, `SetItemContent(<our staging folder>)`, tags, `SubmitItemUpdate(changeNote)`, progress from `GetItemUpdateProgress`, `UserNeedsToAcceptWorkshopLegalAgreement`) using `Steamworks.SteamClient(730)` and its `UGC` from the `Steamworks.dll` that ships inside the CS2WorkshopManager package. Read the reference source for the exact calls and the preview/thumbnail handling.
 - `last-publish.json`: `{ at, workshopId, commit, files: { "<path>": { size, sha256 } } }`. Pack contents diff against it. SHA-256s are cached in `hash-cache.json` keyed by path + size + mtime.
 - Publish flow (`publish.run`):
@@ -180,7 +191,7 @@ Turns an existing CS2 addon into a project.
 `Plan(path)`, `Run(path, mode, files, progress, ct)`, `Clean(path)`. Modes: `changed` (new/changed/failed roots + prebuilt mirror + deleted-root cleanup), `full` (every root + prebuilt mirror + deleted-root cleanup), `files` (given roots only). One build per project at a time (`busy` error). Event indexes are 0-based.
 
 ### 6.6 IPackService
-`Contents(path)`, `Export(path, outDir?)` (uses `AddonPackager.Stage`, default out dir `.addonstudio/export/<timestamp>`).
+`Contents(path)`, `Export(path, outDir?)` (our copy of `AddonPackager.Stage`, default out dir `.addonstudio/export/<timestamp>`), `Selection(path)` (the project's `PackSelection`: mode, expanded rules and gameinfo.gi, used by publish too).
 
 ### 6.7 IPublishService / ISteamService
 As in section 5. `ISteamService.Items()`, `Status(workshopId, lastPublishAt?)`.
@@ -254,7 +265,7 @@ interface RecentProject { path: string; addon: string; title: string; lastOpened
 
 type Visibility = "public" | "friendsOnly" | "private" | "unlisted";
 interface WorkshopConfig { addon: string; workshopId: string | null; title: string; description: string | null; visibility: Visibility; tags: string[]; preview: string | null;
-  pack: { include: string[]; exclude: string[] }; autoBuild: boolean; autoPublish: { enabled: boolean; pattern: string; githubRelease: boolean } }
+  pack: { valveWhitelist: boolean /* default false */; include: string[]; exclude: string[] }; autoBuild: boolean; autoPublish: { enabled: boolean; pattern: string; githubRelease: boolean } }
 interface LinkInfo { state: "linked" | "missing" | "conflict" | "wrongTarget" | "noCs2"; linkPath: string | null; target: string | null; detail: string | null }
 interface ProjectInfo { path: string; config: WorkshopConfig; configErrors: string[]; contentDir: string; prebuiltDir: string; buildDir: string | null;
   link: LinkInfo; git: { isRepo: boolean; branch: string | null; remote: string | null; lfs: boolean } }
@@ -280,8 +291,12 @@ interface BuildResult { ok: boolean; cancelled: boolean; durationMs: number; ite
 
 type FileChange = "added" | "changed" | "same";
 interface PackFile { path: string; size: number; change: FileChange | null /* null = nothing published yet */; origin: "compiled" | "prebuilt" | "other" }
+type PackSkipReason = "junk" | "sourceOnly" | "excluded" | "blocked";
 interface PackContents { files: PackFile[]; removed: string[]; fileCount: number; totalSize: number; limitBytes: number; byType: { label: string; count: number; size: number }[];
-  lastPublish: { at: string; workshopId: string; commit: string | null } | null; changes: { added: number; changed: number; removed: number } }
+  lastPublish: { at: string; workshopId: string; commit: string | null } | null; changes: { added: number; changed: number; removed: number };
+  valveWhitelist: boolean /* the project's mode */;
+  whitelistDropped: { path: string; size: number }[] /* packed by the default mode, dropped by Valve's whitelist (so packed when valveWhitelist is false, left out when true) */;
+  skipped: { path: string; size: number; reason: PackSkipReason }[] /* what the default mode leaves out; Valve's tool files and hidden files are not listed */ }
 interface PackExportResult { dir: string; files: string[]; totalSize: number }
 
 interface PublishRequest { path: string; changeNote: string; version: string | null; skipBuild: boolean; push: boolean; githubRelease: boolean; allowSourceFolderChange: boolean }
@@ -320,9 +335,9 @@ interface CommitResult { hash: string; pushed: boolean; autoPublish: { version: 
   - Changes: changed files grouped Staged / Changes with checkboxes, LFS badge, size; commit message box; Commit, Commit & Push; Pull/Push with ahead/behind; discard with confirm. If the commit result has `autoPublish`, jump to Publish and start it with the version and the commit message as the note.
   - History: commits (paged with `git.log`), version chip, "Deployed" badge with time and workshop link for commits with deploy tags; click opens the files changed.
   - Build: plan grouped by status (new, changed, failed, deleted, unchanged collapsed), counts, conflicts and orphans, buttons Build changed / Full rebuild / Clean (confirm), live per-file progress with status icons, per-file log in a modal. Auto-build: when `config.autoBuild`, call `watch.set` on open, and on `watch.changed` run a `changed` build (one queued at most, never two at once).
-  - Package: every file in the VPK with size, origin and change vs last publish (filter + search + sort), removed files, size bar against `limitBytes` (the maxPackBytes setting), type breakdown, Export button.
-  - Publish: change note, version, toggles (push tags, GitHub release), warnings (dirty tree, build has errors, near size cap), Publish button, stage progress, result with links, Steam status card (time updated, size, visibility, banned/ban reason, live/processing, raw fields expandable, refresh).
-  - Settings: workshop.json form with validation, Save.
+  - Package: a mode card on top ("Packing: everything" or "Packing: Valve whitelist only", with a button to the Settings tab) that lists `whitelistDropped` (folder chips plus the files; an info notice in the default mode, a warning when the whitelist is on) and, in the default mode, the `skipped` files with their reason. Then every file in the VPK with size, origin and change vs last publish (filter + search + sort), removed files, size bar against `limitBytes` (the maxPackBytes setting), type breakdown, Export button.
+  - Publish: change note, version, toggles (push tags, GitHub release), warnings (dirty tree, build has errors, near size cap, Valve's whitelist leaving files out), Publish button, stage progress, result with links, Steam status card (time updated, size, visibility, banned/ban reason, live/processing, raw fields expandable, refresh).
+  - Settings: workshop.json form with validation, Save. Packing has the "Valve whitelist only" switch (`pack.valveWhitelist`, off by default) and the include/exclude lists.
 - Design rules (the owner's standing preferences):
   - It must look like a native Windows 11 app (the owner's call: Tauri styled like Windows 11, not a website in a window):
     - Font: `"Segoe UI Variable Text", "Segoe UI Variable", "Segoe UI", system-ui, sans-serif` (display variant for headings), 14px base, Windows 11 type ramp (caption 12, body 14, subtitle 20, title 28).
@@ -374,3 +389,4 @@ Gaps the sections above left open, settled in the code:
 - CLI: `pack <repo> [--out <dir> | --contents]` exports the VPK or lists it; `status <repo>` prints `steam.status`; `publish` also takes `--skip-build --push --github-release --allow-source-change`.
 - App: Vite serves on port 1420 (strict), which `tauri.conf.json` devUrl matches. Tauri identifier `dev.addonstudio.desktop` (an id ending in `.app` clashes with the macOS bundle extension). The app version comes from `app/package.json`, the core's from `core/Directory.Build.props`. The capability also allows `core:window:allow-set-theme`, `dialog:allow-open` and `opener:allow-open-url` (steamcommunity.com and steam://).
 - Watching is on while the Build tab is open with `autoBuild`; the Changes tab refreshes git.status on window focus and with its refresh button.
+- Packing defaults to everything in the build dir (section 5). A workshop.json without `pack.valveWhitelist` reads as `false`, so projects made before the switch pack everything on their next publish; the Package tab shows what Valve's whitelist would have dropped. `pack.valveWhitelist` that is not a boolean is a config error and reads as `false`.

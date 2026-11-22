@@ -17,6 +17,7 @@ import type {
   GitStatus,
   GithubOwners,
   PackContents,
+  PackSkippedFile,
   PackExportResult,
   PackFile,
   PathParams,
@@ -155,6 +156,8 @@ interface ProjectState {
   orphans: string[];
   /** build-relative path -> size: what is in the build dir */
   sizes: Map<string, number>;
+  /** build dir files the default pack mode leaves out */
+  skipped?: PackSkippedFile[];
   lastPublish: { at: string; workshopId: string; commit: string | null; files: Map<string, number> } | null;
   /** Steam shows the new version after this time */
   processingUntil: number;
@@ -336,11 +339,16 @@ function hudState(): ProjectState {
     for (const output of root.outputs) sizes.set(output, sizeFor(output));
   }
   sizes.set("panorama/layout/custom_game/test_panel.vxml_c", 2_904);
+  // rank badges and an emote model: outside Valve's custom_game whitelist, never on the Workshop before
+  for (const rank of ["skillgroup1", "skillgroup2", "skillgroup3", "skillgroup_premier"]) {
+    sizes.set(`panorama/images/icons/skillgroups/${rank}_png.vtex_c`, 18_400 + rank.length * 310);
+  }
+  sizes.set("characters/models/next/emote_dance.vmdl_c", 1_284_096);
 
   const publishedAt = Date.parse(history.commits[3]!.deploys[0]!.at);
   const published = new Map<string, number>();
   for (const [path, size] of sizes) {
-    if (!path.includes("test_panel")) published.set(path, size);
+    if (!path.includes("test_panel") && !path.includes("skillgroup") && !path.startsWith("characters/")) published.set(path, size);
   }
   published.set("panorama/images/icons/old_c4.vsvg_c", 6_210);
   // changed since the last publish
@@ -352,10 +360,14 @@ function hudState(): ProjectState {
     commits: history.commits,
     files: history.files,
     roots,
-    prebuilt: [],
+    prebuilt: [{ path: "characters/models/next/emote_dance.vmdl_c", size: 1_284_096, status: "unchanged" }],
     conflicts: [],
     orphans: ["panorama/layout/custom_game/test_panel.vxml_c"],
     sizes,
+    skipped: [
+      { path: "panorama/images/Thumbs.db", size: 6_144, reason: "junk" },
+      { path: "characters/models/next/emote_dance.fbx", size: 3_145_728, reason: "sourceOnly" },
+    ],
     lastPublish: { at: iso(publishedAt), workshopId, commit: history.commits[3]!.hash, files: published },
     processingUntil: 0,
     steamUpdatedAt: iso(publishedAt + 95_000),
@@ -720,12 +732,36 @@ function typeLabel(path: string): string {
   return "Other";
 }
 
+/** Roughly what CS2's gameinfo.gi AddonConfig/VpkDirectories lets through (the real list comes from the game). */
+const VALVE_WHITELIST = [
+  "maps/",
+  "materials/",
+  "models/",
+  "particles/",
+  "sounds/",
+  "soundevents/",
+  "panorama/images/custom_game/",
+  "panorama/images/overheadmaps/",
+  "panorama/images/map_icons/",
+  "panorama/layout/custom_game/",
+  "panorama/scripts/custom_game/",
+  "panorama/styles/custom_game/",
+];
+
+const inValveWhitelist = (path: string) => VALVE_WHITELIST.some((prefix) => path.toLowerCase().startsWith(prefix));
+
 function packContents(project: ProjectInfo, s: ProjectState): PackContents {
   const prebuiltPaths = new Set(s.prebuilt.map((entry) => entry.path));
   const compiled = new Set(s.roots.flatMap((root) => root.outputs));
+  const valveWhitelist = project.config.pack.valveWhitelist;
   const files: PackFile[] = [];
+  const whitelistDropped: PackContents["whitelistDropped"] = [];
 
   for (const [path, size] of s.sizes) {
+    if (!inValveWhitelist(path)) {
+      whitelistDropped.push({ path, size });
+      if (valveWhitelist) continue;
+    }
     let change: FileChange | null = null;
     if (s.lastPublish) {
       const before = s.lastPublish.files.get(path);
@@ -734,8 +770,10 @@ function packContents(project: ProjectInfo, s: ProjectState): PackContents {
     files.push({ path, size, change, origin: compiled.has(path) ? "compiled" : prebuiltPaths.has(path) ? "prebuilt" : "other" });
   }
   files.sort((a, b) => a.path.localeCompare(b.path));
+  whitelistDropped.sort((a, b) => a.path.localeCompare(b.path));
 
-  const removed = s.lastPublish ? [...s.lastPublish.files.keys()].filter((path) => !s.sizes.has(path)) : [];
+  const packed = new Set(files.map((file) => file.path));
+  const removed = s.lastPublish ? [...s.lastPublish.files.keys()].filter((path) => !packed.has(path)) : [];
   const types = new Map<string, { count: number; size: number }>();
   for (const file of files) {
     const label = typeLabel(file.path);
@@ -758,6 +796,9 @@ function packContents(project: ProjectInfo, s: ProjectState): PackContents {
       changed: files.filter((file) => file.change === "changed").length,
       removed: removed.length,
     },
+    valveWhitelist,
+    whitelistDropped,
+    skipped: s.skipped ?? [],
   };
 }
 

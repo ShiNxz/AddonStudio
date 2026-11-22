@@ -155,6 +155,19 @@ public enum PackOrigin
     Other,
 }
 
+/// <summary>PackSkippedFile.reason: "junk" | "sourceOnly" | "excluded" | "blocked"</summary>
+public enum PackSkipReason
+{
+    /// <summary>Temporary or OS files: Thumbs.db, desktop.ini, *.tmp, *.temp, *.bak, *.log, names ending in ~.</summary>
+    Junk,
+    /// <summary>A file the compiler reads (a root of the SPEC 4 table, or an image/model/audio source), its compiled form is what ships.</summary>
+    SourceOnly,
+    /// <summary>A workshop.json pack.exclude rule.</summary>
+    Excluded,
+    /// <summary>A type Valve's tool never packs: .bat .cmd .com .dll .exe .msi .rar .reg .los .zip.</summary>
+    Blocked,
+}
+
 /// <summary>"build" | "pack" | "upload" | "tag" | "push" | "release" | "done"</summary>
 public enum PublishStage
 {

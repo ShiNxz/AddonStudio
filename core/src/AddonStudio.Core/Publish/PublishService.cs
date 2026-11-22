@@ -140,8 +140,8 @@ public sealed partial class PublishService : IPublishService
             throw AddonStudioException.NotFound($"The build dir \"{buildDir}\" does not exist. Build the addon first.");
         }
 
-        var rules = pack.BuildRules(repo);
-        var packed = AddonPackager.CollectFiles(buildDir, gameInfo, rules);
+        var selection = pack.Selection(repo);
+        var packed = selection.Collect(buildDir);
 
         if (packed.Count == 0)
         {
@@ -167,7 +167,7 @@ public sealed partial class PublishService : IPublishService
             config.Visibility,
             config.Tags,
             previewPath,
-            rules,
+            selection,
             BuildChangeNote(note, head, dirty),
             request.AllowSourceFolderChange);
 

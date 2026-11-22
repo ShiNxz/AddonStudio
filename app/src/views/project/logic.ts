@@ -232,6 +232,28 @@ export function autoPublishVersion(pattern: string, subject: string): string | n
 
 /* ---------- package ---------- */
 
+export interface FolderSummary {
+  /** The first `depth` folders of the path with a trailing "/", "" for files at the top of the build folder. */
+  folder: string;
+  count: number;
+  size: number;
+}
+
+/** Build-relative files grouped by their first `depth` folders, biggest count first: the folders a list of files comes from, at a glance. */
+export function folderSummary(files: { path: string; size: number }[], depth = 2): FolderSummary[] {
+  const groups = new Map<string, FolderSummary>();
+  for (const file of files) {
+    const folders = file.path.split("/").slice(0, -1).slice(0, depth);
+    const folder = folders.length === 0 ? "" : `${folders.join("/")}/`;
+    const key = folder.toLowerCase();
+    const group = groups.get(key) ?? { folder, count: 0, size: 0 };
+    group.count++;
+    group.size += file.size;
+    groups.set(key, group);
+  }
+  return [...groups.values()].sort((a, b) => b.count - a.count || b.size - a.size || a.folder.localeCompare(b.folder));
+}
+
 export type PackSortKey = "path" | "size";
 
 export interface PackFilter {

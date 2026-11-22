@@ -1,14 +1,15 @@
-// Package: every file that goes into the VPK, with size, origin and change vs the last publish; the size bar
+// Package: the pack mode (everything, or Valve's whitelist only) with what the whitelist drops and what the default
+// mode leaves out; every file that goes into the VPK, with size, origin and change vs the last publish; the size bar
 // against the pack cap, a breakdown by type, removed files, and Export (pack.export).
-import { useDeferredValue, useMemo, useState } from "react";
+import { useDeferredValue, useMemo, useState, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Button, SearchField, Skeleton, cn } from "@heroui/react";
-import { motion } from "motion/react";
-import { ArrowDown, ArrowUp, Download, FolderOpen, Package } from "lucide-react";
+import { AnimatePresence, motion } from "motion/react";
+import { ArrowDown, ArrowUp, ChevronDown, Download, FolderOpen, Package, Settings2 } from "lucide-react";
 import { call, isTauri } from "../../rpc/client";
-import type { FileChange, PackContents, PackExportResult, PackFile, PackOrigin } from "../../rpc/types";
-import type { ProjectViewProps } from "./types";
-import { filterPackFiles, formatBytes, formatDateTime, plural, relativeTime, workshopUrl, type PackSortKey } from "./logic";
+import type { FileChange, PackContents, PackExportResult, PackFile, PackOrigin, PackSkipReason, PackSkippedFile, PackWhitelistFile } from "../../rpc/types";
+import type { ProjectTab, ProjectViewProps } from "./types";
+import { filterPackFiles, folderSummary, formatBytes, formatDateTime, plural, relativeTime, workshopUrl, type PackSortKey } from "./logic";
 import { CopyBlock, ErrorNotice, FilePath, LinkButton, ListSkeleton, Notice, Panel, Segmented, ViewPage, openFolder } from "./ui";
 
 const VALVE_CAP = 3 * 1024 ** 3;
@@ -17,7 +18,7 @@ const PAGE = 300;
 /** Fills for the type breakdown, in order of size. */
 const TYPE_COLORS = ["bg-accent", "bg-success", "bg-warning", "bg-danger", "bg-accent/55", "bg-success/55", "bg-warning/55", "bg-default-foreground/40"];
 
-export function PackageView({ project }: ProjectViewProps) {
+export function PackageView({ project, goTo }: ProjectViewProps) {
   const contents = useQuery({ queryKey: ["pack.contents", project.path], queryFn: () => call("pack.contents", { path: project.path }) });
 
   if (contents.isPending) {
@@ -42,12 +43,25 @@ export function PackageView({ project }: ProjectViewProps) {
     );
   }
 
-  return <PackageBody path={project.path} data={contents.data} refreshing={contents.isFetching} onRefresh={() => void contents.refetch()} />;
+  return <PackageBody path={project.path} data={contents.data} refreshing={contents.isFetching} onRefresh={() => void contents.refetch()} goTo={goTo} />;
 }
 
-function PackageBody({ path, data, refreshing, onRefresh }: { path: string; data: PackContents; refreshing: boolean; onRefresh: () => void }) {
+function PackageBody({
+  path,
+  data,
+  refreshing,
+  onRefresh,
+  goTo,
+}: {
+  path: string;
+  data: PackContents;
+  refreshing: boolean;
+  onRefresh: () => void;
+  goTo: (tab: ProjectTab) => void;
+}) {
   return (
     <ViewPage>
+      <ModeCard data={data} onSettings={() => goTo("settings")} />
       <div className="grid gap-4 lg:grid-cols-2">
         <SizeCard data={data} />
         <TypeCard data={data} />
@@ -67,6 +81,151 @@ function PackageBody({ path, data, refreshing, onRefresh }: { path: string; data
         </Panel>
       )}
     </ViewPage>
+  );
+}
+
+/* ---------- pack mode ---------- */
+
+const SKIP_LABEL: Record<PackSkipReason, string> = {
+  junk: "junk",
+  sourceOnly: "source file",
+  excluded: "exclude rule",
+  blocked: "blocked type",
+};
+
+const SKIP_PLURAL: Record<PackSkipReason, string> = {
+  junk: "junk",
+  sourceOnly: "source files",
+  excluded: "exclude rules",
+  blocked: "blocked types",
+};
+
+const SKIP_TITLE: Record<PackSkipReason, string> = {
+  junk: "Temporary or OS file (Thumbs.db, .tmp, .log...)",
+  sourceOnly: "The compiler reads it, CS2 loads the compiled file",
+  excluded: "A pack exclude rule in Settings",
+  blocked: "Valve's tool never packs executables and archives",
+};
+
+function ModeCard({ data, onSettings }: { data: PackContents; onSettings: () => void }) {
+  const dropped = data.whitelistDropped;
+  const droppedSize = dropped.reduce((sum, file) => sum + file.size, 0);
+  const whitelist = data.valveWhitelist;
+
+  return (
+    <Panel
+      title={whitelist ? "Packing: Valve whitelist only" : "Packing: everything"}
+      description={
+        whitelist
+          ? "Only the folders in CS2's gameinfo.gi (AddonConfig > VpkDirectories) go in, like Valve's workshop manager."
+          : "Every file in the build folder goes in: compiled files and prebuilt/. Junk and source files stay out."
+      }
+      actions={
+        <Button size="sm" variant="tertiary" onPress={onSettings}>
+          <Settings2 className="size-3.5" />
+          Change in Settings
+        </Button>
+      }
+    >
+      <div className="flex flex-col gap-3">
+        {dropped.length === 0 ? (
+          <p className="text-xs text-muted">Nothing in the build folder is outside Valve's whitelist.</p>
+        ) : whitelist ? (
+          <Notice tone="warning" title={`Valve's whitelist leaves out ${plural(dropped.length, "file")} (${formatBytes(droppedSize)})`}>
+            They are in the build folder but not in the VPK. Turn off "Valve whitelist only" in Settings, or add include rules for them.
+          </Notice>
+        ) : (
+          <Notice tone="info" title={`${plural(dropped.length, "file")} (${formatBytes(droppedSize)}) outside Valve's whitelist, packed anyway`}>
+            Valve's workshop manager would have left these out.
+          </Notice>
+        )}
+        {dropped.length > 0 && <DroppedList files={dropped} />}
+        {!whitelist && data.skipped.length > 0 && <SkippedList files={data.skipped} />}
+      </div>
+    </Panel>
+  );
+}
+
+function Disclosure({ label, children }: { label: ReactNode; children: ReactNode }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div>
+      <button
+        type="button"
+        onClick={() => setOpen((value) => !value)}
+        aria-expanded={open}
+        className="flex cursor-pointer items-center gap-1.5 rounded-sm text-xs text-muted transition-colors duration-200 hover:text-foreground"
+      >
+        <ChevronDown className={cn("size-3.5 transition-transform duration-200", !open && "-rotate-90")} />
+        {label}
+      </button>
+      <AnimatePresence initial={false}>
+        {open && (
+          <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: "auto" }} exit={{ opacity: 0, height: 0 }} transition={{ duration: 0.18 }} className="overflow-hidden">
+            <div className="pt-2">{children}</div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  );
+}
+
+function DroppedList({ files }: { files: PackWhitelistFile[] }) {
+  const [limit, setLimit] = useState(PAGE);
+  const folders = useMemo(() => folderSummary(files), [files]);
+  return (
+    <div className="flex flex-col gap-2">
+      <ul className="flex flex-wrap gap-1.5" aria-label="Folders outside the whitelist">
+        {folders.slice(0, 8).map((group) => (
+          <li key={group.folder} className="rounded-sm bg-default/60 px-2 py-0.5 font-mono text-xs">
+            {group.folder || "top level"} <span className="text-muted tabular-nums">{group.count}</span>
+          </li>
+        ))}
+        {folders.length > 8 && <li className="px-1 py-0.5 text-xs text-muted">+{folders.length - 8} more folders</li>}
+      </ul>
+      <Disclosure label={`Files (${files.length.toLocaleString("en-US")})`}>
+        <ul className="flex flex-col">
+          {files.slice(0, limit).map((file) => (
+            <li key={file.path} className="flex items-center gap-3 rounded-sm px-2 py-1 text-[13px]">
+              <FilePath path={file.path} className="flex-1" />
+              <span className="w-20 shrink-0 text-right text-xs tabular-nums">{formatBytes(file.size)}</span>
+            </li>
+          ))}
+        </ul>
+        {files.length > limit && (
+          <Button size="sm" variant="tertiary" className="mt-1" onPress={() => setLimit((value) => value + PAGE * 2)}>
+            Show {Math.min(PAGE * 2, files.length - limit)} more
+          </Button>
+        )}
+      </Disclosure>
+    </div>
+  );
+}
+
+function SkippedList({ files }: { files: PackSkippedFile[] }) {
+  const [limit, setLimit] = useState(PAGE);
+  const size = files.reduce((sum, file) => sum + file.size, 0);
+  const reasons = [...new Set(files.map((file) => file.reason))].map((reason) => SKIP_PLURAL[reason]).join(", ");
+  return (
+    <Disclosure label={`${plural(files.length, "file")} left out (${formatBytes(size)}): ${reasons}`}>
+      <p className="px-2 pb-1 text-xs text-muted">An include rule in Settings packs a junk or source file anyway.</p>
+      <ul className="flex flex-col">
+        {files.slice(0, limit).map((file) => (
+          <li key={file.path} className="flex items-center gap-3 rounded-sm px-2 py-1 text-[13px]">
+            <FilePath path={file.path} className="flex-1 text-muted" />
+            <span className="hidden w-24 shrink-0 text-xs text-muted sm:block" title={SKIP_TITLE[file.reason]}>
+              {SKIP_LABEL[file.reason]}
+            </span>
+            <span className="w-20 shrink-0 text-right text-xs tabular-nums">{formatBytes(file.size)}</span>
+          </li>
+        ))}
+      </ul>
+      {files.length > limit && (
+        <Button size="sm" variant="tertiary" className="mt-1" onPress={() => setLimit((value) => value + PAGE * 2)}>
+          Show {Math.min(PAGE * 2, files.length - limit)} more
+        </Button>
+      )}
+    </Disclosure>
   );
 }
 

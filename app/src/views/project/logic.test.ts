@@ -5,7 +5,7 @@ import type { GitFileChange, PackFile, WorkshopConfig } from "../../rpc/types";
 
 // a computed specifier so tsc does not need allowImportingTsExtensions, while node loads the .ts file directly
 const logic: typeof import("./logic") = await import(new URL("./logic.ts", import.meta.url).href);
-const { BuildQueue, autoPublishVersion, classifyLogLine, filterPackFiles, formatBytes, shownState, splitChanges, validateConfig } = logic;
+const { BuildQueue, autoPublishVersion, classifyLogLine, filterPackFiles, folderSummary, formatBytes, shownState, splitChanges, validateConfig } = logic;
 
 function deferred() {
   let resolve!: () => void;
@@ -55,7 +55,7 @@ const baseConfig: WorkshopConfig = {
   visibility: "public",
   tags: ["Custom"],
   preview: "preview.png",
-  pack: { include: [], exclude: ["**/*.psd"] },
+  pack: { valveWhitelist: false, include: [], exclude: ["**/*.psd"] },
   autoBuild: true,
   autoPublish: { enabled: true, pattern: "^v(\\d+\\.\\d+\\.\\d+)\\b", githubRelease: false },
 };
@@ -70,7 +70,7 @@ test("validateConfig accepts the default config and flags each bad field", () =>
     title: "  ",
     tags: ["Custom", "custom"],
     preview: "C:\\art\\preview.png",
-    pack: { include: ["maps\\*.vpk"], exclude: ["../outside/**"] },
+    pack: { valveWhitelist: false, include: ["maps\\*.vpk"], exclude: ["../outside/**"] },
     autoPublish: { enabled: true, pattern: "^v\\d+", githubRelease: false },
   });
   assert.deepEqual(Object.keys(errors).sort(), ["addon", "exclude", "include", "pattern", "preview", "tags", "title", "workshopId"]);
@@ -120,6 +120,22 @@ test("filterPackFiles searches all terms, filters and sorts with a stable tie-br
   assert.deepEqual(filterPackFiles(files, { ...all, change: "added", sort: "path", descending: false }).map((f) => f.path), ["panorama/images/coin_png.vtex_c"]);
   // the input is not reordered
   assert.equal(files[0]!.path, "panorama/layout/hud.vxml_c");
+});
+
+test("folderSummary groups the whitelist drops by their top folders", () => {
+  const groups = folderSummary([
+    { path: "panorama/images/icons/skillgroups/skillgroup1_png.vtex_c", size: 10 },
+    { path: "panorama/images/icons/skillgroups/skillgroup2_png.vtex_c", size: 20 },
+    { path: "Panorama/Images/logo_png.vtex_c", size: 5 },
+    { path: "characters/models/emote/dance.vmdl_c", size: 100 },
+    { path: "Thumbs.db", size: 1 },
+  ]);
+  assert.deepEqual(groups, [
+    { folder: "panorama/images/", count: 3, size: 35 },
+    { folder: "characters/models/", count: 1, size: 100 },
+    { folder: "", count: 1, size: 1 },
+  ]);
+  assert.deepEqual(folderSummary([{ path: "a/b/c.txt", size: 1 }], 1), [{ folder: "a/", count: 1, size: 1 }]);
 });
 
 test("log lines, auto-publish versions and sizes", () => {

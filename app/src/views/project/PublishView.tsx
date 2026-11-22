@@ -168,6 +168,12 @@ export function PublishView({ project, refreshProject, goTo, intent }: ProjectVi
       title: `The last build has errors in ${plural(plan.data.counts.failed, "file")}`,
       body: "Publish builds first and stops if anything still fails.",
     });
+  if (pack.data && pack.data.valveWhitelist && pack.data.whitelistDropped.length > 0)
+    warnings.push({
+      tone: "warning",
+      title: `Valve's whitelist leaves out ${plural(pack.data.whitelistDropped.length, "file")}`,
+      body: "\"Valve whitelist only\" is on in Settings. The Package tab lists the files.",
+    });
   if (pack.data && pack.data.limitBytes > 0) {
     const ratio = pack.data.totalSize / pack.data.limitBytes;
     if (ratio > 1) warnings.push({ tone: "danger", title: "The package is over the size cap", body: `${formatBytes(pack.data.totalSize)} of ${formatBytes(pack.data.limitBytes)}.` });

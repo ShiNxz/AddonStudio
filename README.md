@@ -12,7 +12,7 @@ content/ (sources, in git)
    v
 <CS2>/game/csgo_addons/<addon>/      build dir (Valve's location, regenerated, never in git)
    ^ prebuilt/ copied in as-is (compiled files without sources: models, maps...)
-   | pack: Valve's workshop manager rules (VPK v2, 100 MB chunks, 3 GiB cap by default)
+   | pack: everything in the build dir minus junk and sources (VPK v2, 100 MB chunks, 3 GiB cap by default)
    v
 <id>_dir.vpk + _000.vpk... + publish_data.txt
    | upload through the running Steam client (ISteamUGC)
@@ -22,6 +22,7 @@ Steam Workshop item -> Steam processes it -> live
 
 - `content/` is linked into `<CS2>/content/csgo_addons/<addon>` with a directory junction, so the compiler sees the addon where it expects it.
 - A file counts as changed when its bytes or any file it references change (images, includes, materials...). Changing the compiler or its arguments rebuilds everything.
+- The VPK gets every file in the build dir: everything the project compiles plus `prebuilt/`. Left out are Valve's tool cache, hidden files, junk (`Thumbs.db`, `*.tmp`, `*.log`...) and source files CS2 never loads (`.psd`, `.fbx`, raw panorama `.xml`/`.css`/`.js`...). Valve's own workshop manager only packs the folders `gameinfo.gi` whitelists (`panorama/.../custom_game`, `overheadmaps`, `map_icons` and the like) and drops the rest without a word; turn on "Valve whitelist only" in a project's Settings to get that behaviour. Either way the Package tab lists the files the whitelist leaves out, and `pack.include` / `pack.exclude` in `workshop.json` work on top.
 - Publishing tags the commit (`deploy/<time>`, optional `v<version>`), so History shows what went live when.
 - Build and publish run on your PC. Compiling and publishing need Windows, CS2 with the Workshop Tools and a running Steam client.
 

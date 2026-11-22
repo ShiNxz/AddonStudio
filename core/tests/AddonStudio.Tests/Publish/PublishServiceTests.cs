@@ -1,5 +1,6 @@
 using AddonStudio.Core.Contracts;
 using AddonStudio.Core.Git;
+using AddonStudio.Core.Pack;
 using AddonStudio.Core.Publish;
 using AddonStudio.Core.Util;
 using AddonStudio.Tests.Git;
@@ -212,7 +213,7 @@ public sealed class PublishServiceTests
 
         public Task<PackExportResult> ExportAsync(string path, string? outDir, CancellationToken ct = default) => throw new NotSupportedException();
 
-        public AddonRules BuildRules(string path) => new();
+        public PackSelection Selection(string path) => new(valveWhitelist: false, new AddonRules(), gameInfoPath: null);
     }
 
     private sealed class NoEnvironment : IEnvironmentService

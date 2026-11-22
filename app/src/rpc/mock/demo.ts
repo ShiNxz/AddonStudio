@@ -51,7 +51,7 @@ const hudConfig: WorkshopConfig = {
   visibility: "public",
   tags: ["Custom"],
   preview: "preview.png",
-  pack: { include: [], exclude: ["**/*.psd"] },
+  pack: { valveWhitelist: false, include: [], exclude: ["**/*.psd"] },
   autoBuild: true,
   autoPublish: { enabled: true, pattern: "^v(\\d+\\.\\d+\\.\\d+)\\b", githubRelease: false },
 };
@@ -64,7 +64,7 @@ const modelsConfig: WorkshopConfig = {
   visibility: "private",
   tags: ["Custom"],
   preview: "preview.png",
-  pack: { include: [], exclude: ["**/*.psd"] },
+  pack: { valveWhitelist: false, include: [], exclude: ["**/*.psd"] },
   autoBuild: false,
   autoPublish: { enabled: false, pattern: "^v(\\d+\\.\\d+\\.\\d+)\\b", githubRelease: false },
 };
