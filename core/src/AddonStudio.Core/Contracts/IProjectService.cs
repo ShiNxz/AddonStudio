@@ -10,7 +10,7 @@ public interface IProjectService
     Task<ProjectInfo> OpenAsync(string path, CancellationToken ct = default);
 
     /// <summary>projects.create: layout + workshop.json + .gitattributes + .gitignore + git init + git lfs install --local when available.</summary>
-    Task<ProjectInfo> CreateAsync(string path, string addon, string title, CancellationToken ct = default);
+    Task<ProjectInfo> CreateAsync(string path, string addon, string title, CancellationToken ct = default, bool initialCommit = true);
 
     /// <summary>projects.clone: IGitService.CloneAsync (git.progress events), then open.</summary>
     Task<ProjectInfo> CloneAsync(string url, string path, IEventSink events, CancellationToken ct = default);

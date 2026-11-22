@@ -59,5 +59,8 @@ public sealed record AutoPublishMatch(string Version);
 /// <summary>git.commit result. AutoPublish is set when workshop.json autoPublish is enabled and the subject matches the pattern.</summary>
 public sealed record CommitResult(string Hash, bool Pushed, AutoPublishMatch? AutoPublish, GitStatus Status);
 
+/// <summary>git.githubOwners: the account gh is logged in as and the orgs it belongs to (where a repo can be created).</summary>
+public sealed record GithubOwners(string User, IReadOnlyList<string> Orgs);
+
 /// <summary>A tag as IGitService.TagsAsync lists it (not sent over RPC). Message and Date only for annotated tags.</summary>
 public sealed record GitTag(string Name, string Commit, bool Annotated, string? Message, DateTimeOffset? Date);

@@ -179,7 +179,7 @@ public sealed class PublishServiceTests
 
         public Task<ProjectInfo> OpenAsync(string path, CancellationToken ct = default) => throw new NotSupportedException();
 
-        public Task<ProjectInfo> CreateAsync(string path, string addon, string title, CancellationToken ct = default) => throw new NotSupportedException();
+        public Task<ProjectInfo> CreateAsync(string path, string addon, string title, CancellationToken ct = default, bool initialCommit = true) => throw new NotSupportedException();
 
         public Task<ProjectInfo> CloneAsync(string url, string path, IEventSink events, CancellationToken ct = default) => throw new NotSupportedException();
 

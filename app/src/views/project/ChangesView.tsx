@@ -2,9 +2,9 @@
 // pull / push / fetch with ahead/behind, and the "Put this on GitHub" card when the repo has no remote.
 import { useEffect, useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Button, Checkbox, Chip, Description, Disclosure, Input, Label, ProgressBar, Skeleton, TextArea, TextField, cn } from "@heroui/react";
+import { Button, Checkbox, Chip, Description, Disclosure, Input, Label, ListBox, Modal, ProgressBar, Select, Skeleton, TextArea, TextField, cn } from "@heroui/react";
 import { AnimatePresence, motion } from "motion/react";
-import { ArrowDown, ArrowUp, CloudDownload, CloudUpload, GitBranch, GitCommitHorizontal, Lock, RefreshCw, Rocket, Undo2 } from "lucide-react";
+import { ArrowDown, ArrowUp, CloudDownload, CloudUpload, GitBranch, GitCommitHorizontal, Globe, Lock, RefreshCw, Rocket, Undo2 } from "lucide-react";
 import { call, subscribe } from "../../rpc/client";
 import type { GitFileChange, GitProgressEvent, GitStatus, ProjectInfo } from "../../rpc/types";
 import type { ProjectViewProps } from "./types";
@@ -510,49 +510,27 @@ function DiscardBody({ files }: { files: GitFileChange[] }) {
 /* ---------- GitHub card ---------- */
 
 function GitHubCard({ project, refreshProject, onDone }: { project: ProjectInfo; refreshProject: () => Promise<void>; onDone: () => void }) {
-  const [pending, setPending] = useState(false);
-  const [error, setError] = useState<unknown>(null);
-  const [progress, setProgress] = useState<string | null>(null);
-  const name = project.config.addon.replace(/_/g, "-");
-
-  const create = async () => {
-    setPending(true);
-    setError(null);
-    setProgress(null);
-    try {
-      await call("git.publishRepo", { path: project.path, name, private: true }, { onEvent: (event) => setProgress(event.data.line) });
-      await refreshProject();
-      onDone();
-    } catch (failure) {
-      setError(failure);
-    } finally {
-      setPending(false);
-    }
-  };
+  const [open, setOpen] = useState(false);
+  const name = suggestRepoName(project.config.addon);
 
   return (
     <Panel
       title="Put this on GitHub"
       description="Sources go to a GitHub repo, big binaries (images, sounds, prebuilt/) through Git LFS."
       actions={
-        <Button variant="primary" size="sm" isPending={pending} onPress={() => void create()}>
-          <Lock className="size-3.5" />
-          Create private GitHub repo
+        <Button variant="primary" size="sm" onPress={() => setOpen(true)}>
+          <CloudUpload className="size-3.5" />
+          Create GitHub repo
         </Button>
       }
     >
       <div className="flex flex-col gap-3 text-[13px]">
         <p className="text-muted">
-          GitHub gives 10 GiB of LFS storage free, then about $0.07 per GiB a month. Add a payment method on GitHub or pushes stop at the quota. The button needs
+          Pick your account or one of your organizations, the name, and public or private. GitHub gives 10 GiB of LFS storage free, then about $0.07 per GiB a
+          month. Add a payment method on GitHub or pushes stop at the quota. Needs
           <code className="mx-1 rounded-sm bg-default/60 px-1 font-mono text-xs text-foreground">gh auth login</code>
           once.
         </p>
-        {pending && progress && <p className="font-mono text-xs text-muted wrap-anywhere">{progress}</p>}
-        {error !== null && (
-          <Notice tone="danger" title="Could not create the repo">
-            {errorText(error)}
-          </Notice>
-        )}
         <Disclosure>
           <Disclosure.Heading>
             <Disclosure.Trigger className="flex cursor-pointer items-center gap-1.5 text-xs text-accent transition-colors duration-200">
@@ -562,9 +540,9 @@ function GitHubCard({ project, refreshProject, onDone }: { project: ProjectInfo;
           </Disclosure.Heading>
           <Disclosure.Content>
             <div className="flex flex-col gap-2 pt-2 text-xs text-muted">
-              <p>1. Create an empty private repo on github.com (no README, no .gitignore).</p>
+              <p>1. Create an empty repo on github.com (no README, no .gitignore).</p>
               <p>2. In the project folder run:</p>
-              <CopyBlock text={`git remote add origin https://github.com/<you>/${name}.git\ngit push -u origin main`} />
+              <CopyBlock text={`git remote add origin https://github.com/<owner>/${name}.git\ngit push -u origin main`} />
               <p>
                 All steps are in docs/GITHUB-LFS.md.{" "}
                 <button
@@ -579,6 +557,196 @@ function GitHubCard({ project, refreshProject, onDone }: { project: ProjectInfo;
           </Disclosure.Content>
         </Disclosure>
       </div>
+      <CreateRepoModal
+        project={project}
+        isOpen={open}
+        onClose={() => setOpen(false)}
+        onCreated={async () => {
+          setOpen(false);
+          await refreshProject();
+          onDone();
+        }}
+      />
     </Panel>
+  );
+}
+
+/** GitHub repo names: letters, digits, "-", "_", "."; the addon's underscores read better as dashes. */
+function suggestRepoName(addon: string): string {
+  return addon.replace(/_/g, "-");
+}
+
+const REPO_NAME = /^[A-Za-z0-9._-]{1,100}$/;
+
+function CreateRepoModal({
+  project,
+  isOpen,
+  onClose,
+  onCreated,
+}: {
+  project: ProjectInfo;
+  isOpen: boolean;
+  onClose: () => void;
+  onCreated: () => Promise<void>;
+}) {
+  const owners = useQuery({ queryKey: ["git.githubOwners"], queryFn: () => call("git.githubOwners"), enabled: isOpen, staleTime: 5 * 60_000, retry: false });
+  const [owner, setOwner] = useState<string | null>(null);
+  const [name, setName] = useState(() => suggestRepoName(project.config.addon));
+  const [visibility, setVisibility] = useState<"private" | "public">("private");
+  const [description, setDescription] = useState(() => `${project.config.title} - CS2 Workshop addon`);
+  const [pending, setPending] = useState(false);
+  const [progress, setProgress] = useState<string | null>(null);
+  const [error, setError] = useState<unknown>(null);
+
+  // default to the account itself once the list is in
+  useEffect(() => {
+    if (owners.data && owner === null) setOwner(owners.data.user);
+  }, [owners.data, owner]);
+
+  const nameValid = REPO_NAME.test(name.trim());
+  const ownerList = owners.data ? [owners.data.user, ...owners.data.orgs] : [];
+  const fullName = `${owner ?? "..."}/${name.trim() || "..."}`;
+
+  const create = async () => {
+    if (!owners.data || owner === null || !nameValid) return;
+    setPending(true);
+    setError(null);
+    setProgress(null);
+    try {
+      await call(
+        "git.publishRepo",
+        {
+          path: project.path,
+          owner: owner === owners.data.user ? null : owner,
+          name: name.trim(),
+          private: visibility === "private",
+          description: description.trim() || null,
+        },
+        { onEvent: (event) => setProgress(event.data.line) },
+      );
+      await onCreated();
+    } catch (failure) {
+      setError(failure);
+    } finally {
+      setPending(false);
+    }
+  };
+
+  return (
+    <Modal.Backdrop
+      isOpen={isOpen}
+      onOpenChange={(next) => {
+        if (!next && !pending) onClose();
+      }}
+    >
+      <Modal.Container size="md">
+        <Modal.Dialog className="sm:max-w-lg">
+          <Modal.CloseTrigger />
+          <Modal.Header className="flex-col items-start gap-1">
+            <Modal.Heading>Create GitHub repo</Modal.Heading>
+            <p className="text-[13px] text-muted">Creates the repo, sets it as origin and pushes everything, LFS files included.</p>
+          </Modal.Header>
+          <Modal.Body className="flex flex-col gap-4">
+            {owners.isPending ? (
+              <div className="flex flex-col gap-3">
+                <Skeleton className="h-9 w-full rounded-md" />
+                <Skeleton className="h-9 w-full rounded-md" />
+                <Skeleton className="h-9 w-2/3 rounded-md" />
+              </div>
+            ) : owners.isError ? (
+              <Notice tone="danger" title="Could not ask GitHub who you are">
+                {errorText(owners.error)}
+              </Notice>
+            ) : (
+              <>
+                <Select value={owner} onChange={(value) => value !== null && setOwner(String(value))} isDisabled={pending}>
+                  <Label>Owner</Label>
+                  <Select.Trigger>
+                    <Select.Value />
+                    <Select.Indicator />
+                  </Select.Trigger>
+                  <Select.Popover>
+                    <ListBox>
+                      {ownerList.map((login, index) => (
+                        <ListBox.Item key={login} id={login} textValue={login}>
+                          <div className="flex flex-col">
+                            <Label>{login}</Label>
+                            <Description>{index === 0 ? "Your account" : "Organization"}</Description>
+                          </div>
+                          <ListBox.ItemIndicator />
+                        </ListBox.Item>
+                      ))}
+                    </ListBox>
+                  </Select.Popover>
+                </Select>
+
+                <TextField value={name} onChange={setName} isInvalid={name.length > 0 && !nameValid} isDisabled={pending}>
+                  <Label>Repo name</Label>
+                  <Input />
+                  <Description>{nameValid ? `github.com/${fullName}` : "Letters, digits, - _ or . only, up to 100 characters."}</Description>
+                </TextField>
+
+                <div className="flex flex-col gap-1.5">
+                  <Label>Visibility</Label>
+                  <div className="grid grid-cols-2 gap-2">
+                    {(
+                      [
+                        { id: "private", label: "Private", hint: "Only you and people you invite", icon: Lock },
+                        { id: "public", label: "Public", hint: "Anyone can see and clone it", icon: Globe },
+                      ] as const
+                    ).map((option) => (
+                      <button
+                        key={option.id}
+                        type="button"
+                        disabled={pending}
+                        onClick={() => setVisibility(option.id)}
+                        className={cn(
+                          "flex cursor-pointer items-start gap-2.5 rounded-lg px-3 py-2.5 text-left transition-colors duration-200 disabled:cursor-default",
+                          visibility === option.id ? "bg-accent/15 text-foreground" : "bg-default/40 text-muted hover:bg-default/70",
+                        )}
+                      >
+                        <option.icon className={cn("mt-0.5 size-4 shrink-0", visibility === option.id && "text-accent")} />
+                        <span className="flex flex-col">
+                          <span className="text-[13px] font-medium text-foreground">{option.label}</span>
+                          <span className="text-xs">{option.hint}</span>
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <TextField value={description} onChange={setDescription} isDisabled={pending}>
+                  <Label>Description</Label>
+                  <Input />
+                </TextField>
+
+                {owners.data && owners.data.orgs.length === 0 && (
+                  <p className="text-xs text-muted">
+                    No organizations listed. If you are in one, run
+                    <code className="mx-1 rounded-sm bg-default/60 px-1 font-mono text-foreground">gh auth refresh -s read:org</code>
+                    and open this again.
+                  </p>
+                )}
+              </>
+            )}
+            {pending && progress && <p className="font-mono text-xs text-muted wrap-anywhere">{progress}</p>}
+            {error !== null && (
+              <Notice tone="danger" title="Could not create the repo">
+                {errorText(error)}
+              </Notice>
+            )}
+          </Modal.Body>
+          <Modal.Footer>
+            <Button variant="secondary" onPress={onClose} isDisabled={pending}>
+              Cancel
+            </Button>
+            <Button variant="primary" isPending={pending} isDisabled={!owners.data || owner === null || !nameValid} onPress={() => void create()}>
+              {visibility === "private" ? <Lock className="size-3.5" /> : <Globe className="size-3.5" />}
+              Create {visibility} repo
+            </Button>
+          </Modal.Footer>
+        </Modal.Dialog>
+      </Modal.Container>
+    </Modal.Backdrop>
   );
 }

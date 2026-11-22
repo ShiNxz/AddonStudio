@@ -203,4 +203,31 @@ public sealed class GitServiceTests
         Assert.True(File.Exists(Path.Combine(repo.Path, "keep.log")));
         Assert.True(File.Exists(outside));
     }
+
+    [Fact]
+    public async Task CommitAll_makes_the_first_commit_and_skips_when_nothing_changed()
+    {
+        using var repo = new GitTestRepo();
+        repo.Write("workshop.json", "{}");
+        repo.Write("content/panorama/layout/hud.xml", "<root/>");
+
+        var first = await git.CommitAllAsync(repo.Path, "Import next_hud from CS2");
+        Assert.NotNull(first);
+        Assert.Equal(first, await git.HeadAsync(repo.Path));
+        Assert.Contains("content/panorama/layout/hud.xml", repo.Git("show", "--name-only", "--format=", "HEAD"));
+
+        Assert.Null(await git.CommitAllAsync(repo.Path, "nothing new"));
+    }
+
+    [Fact]
+    public async Task PublishRepo_checks_owner_and_name_before_calling_gh()
+    {
+        using var repo = new GitTestRepo();
+
+        var badName = await Assert.ThrowsAsync<AddonStudioException>(() => git.PublishRepoAsync(repo.Path, null, "bad name", true, null, NullEventSink.Instance));
+        Assert.Equal(ErrorCodes.InvalidParams, badName.Code);
+
+        var badOwner = await Assert.ThrowsAsync<AddonStudioException>(() => git.PublishRepoAsync(repo.Path, "-org", "next-hud", true, null, NullEventSink.Instance));
+        Assert.Equal(ErrorCodes.InvalidParams, badOwner.Code);
+    }
 }

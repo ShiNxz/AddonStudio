@@ -422,6 +422,12 @@ export interface AutoPublishMatch {
   version: string;
 }
 
+/** git.githubOwners: the account gh is logged in as and the orgs it belongs to. */
+export interface GithubOwners {
+  user: string;
+  orgs: string[];
+}
+
 export interface CommitResult {
   hash: string;
   pushed: boolean;
@@ -566,7 +572,11 @@ export interface Methods {
   "git.fetch": { params: PathParams; result: GitStatus };
   "git.log": { params: { path: string; limit: number; skip: number }; result: GitCommit[] };
   "git.show": { params: { path: string; hash: string }; result: GitCommitDetail };
-  "git.publishRepo": { params: { path: string; name: string; private: boolean }; result: ProjectInfo };
+  "git.publishRepo": {
+    params: { path: string; owner: string | null; name: string; private: boolean; description: string | null };
+    result: ProjectInfo;
+  };
+  "git.githubOwners": { params: undefined; result: GithubOwners };
   "watch.set": { params: { path: string; enabled: boolean }; result: WatchSetResult };
   "rpc.cancel": { params: { requestId: RequestId }; result: CancelResult };
 }
@@ -626,6 +636,7 @@ export const METHOD_NAMES = [
   "git.log",
   "git.show",
   "git.publishRepo",
+  "git.githubOwners",
   "watch.set",
   "rpc.cancel",
 ] as const satisfies readonly MethodName[];

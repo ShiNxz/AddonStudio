@@ -39,8 +39,8 @@ public sealed record GitLogParams(string Path, int Limit = 50, int Skip = 0);
 /// <summary>git.show { path, hash }</summary>
 public sealed record GitShowParams(string Path, string Hash);
 
-/// <summary>git.publishRepo { path, name, private }</summary>
-public sealed record PublishRepoParams(string Path, string Name, bool Private = true);
+/// <summary>git.publishRepo { path, owner, name, private, description }. owner null = the gh account itself.</summary>
+public sealed record PublishRepoParams(string Path, string Name, bool Private = true, string? Owner = null, string? Description = null);
 
 /// <summary>watch.set { path, enabled }</summary>
 public sealed record WatchSetParams(string Path, bool Enabled);

@@ -60,7 +60,7 @@ public sealed class ProjectService : IProjectService
         return info;
     }
 
-    public async Task<ProjectInfo> CreateAsync(string path, string addon, string title, CancellationToken ct = default)
+    public async Task<ProjectInfo> CreateAsync(string path, string addon, string title, CancellationToken ct = default, bool initialCommit = true)
     {
         if (!WorkshopConfigFile.IsValidAddon(addon))
         {
@@ -71,6 +71,20 @@ public sealed class ProjectService : IProjectService
         RequireEmptyFolder(repo);
 
         await WriteLayoutAsync(repo, addon, string.IsNullOrWhiteSpace(title) ? addon : title.Trim(), ct).ConfigureAwait(false);
+
+        // every new project starts with a commit, so History is not empty and gh can push it
+        if (initialCommit && Directory.Exists(Path.Combine(repo, ".git")))
+        {
+            try
+            {
+                await git.CommitAllAsync(repo, $"Create {addon}", ct).ConfigureAwait(false);
+            }
+            catch (AddonStudioException exception) when (exception.Code == ErrorCodes.GitFailed)
+            {
+                // the project still works; the Changes tab shows the files and the same error on commit
+                Log.Warn($"First commit in {repo} failed: {exception.Message}");
+            }
+        }
 
         return await OpenAsync(repo, ct).ConfigureAwait(false);
     }

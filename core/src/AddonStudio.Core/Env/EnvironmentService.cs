@@ -33,6 +33,8 @@ public sealed class EnvironmentService : IEnvironmentService
         Invalidate();
 
         var gitTask = ToolVersionAsync("git", ["--version"], ct);
+        var gitNameTask = ToolVersionAsync("git", ["config", "--get", "user.name"], ct);
+        var gitEmailTask = ToolVersionAsync("git", ["config", "--get", "user.email"], ct);
         var lfsTask = ToolVersionAsync("git", ["lfs", "version"], ct);
         var ghTask = ToolVersionAsync("gh", ["--version"], ct);
         var ghAuthTask = GhAuthAsync(ct);
@@ -74,10 +76,25 @@ public sealed class EnvironmentService : IEnvironmentService
         };
 
         var git = await gitTask.ConfigureAwait(false);
-        checks.Add(git.Ok
-            ? new DoctorCheck(DoctorCheckId.Git, "Git", CheckStatus.Ok, git.Text, null)
-            : new DoctorCheck(DoctorCheckId.Git, "Git", CheckStatus.Error, git.Text,
+        var gitName = await gitNameTask.ConfigureAwait(false);
+        var gitEmail = await gitEmailTask.ConfigureAwait(false);
+
+        if (!git.Ok)
+        {
+            checks.Add(new DoctorCheck(DoctorCheckId.Git, "Git", CheckStatus.Error, git.Text,
                 "Install Git for Windows from https://git-scm.com/download/win (it includes Git LFS)."));
+        }
+        else if (!gitName.Ok || !gitEmail.Ok)
+        {
+            // a fresh Git for Windows has no identity, and then every commit fails
+            checks.Add(new DoctorCheck(DoctorCheckId.Git, "Git", CheckStatus.Warn,
+                $"{git.Text}, but no {(!gitName.Ok && !gitEmail.Ok ? "user.name and user.email" : !gitName.Ok ? "user.name" : "user.email")} is set, so commits fail.",
+                "Run once in a terminal (use your GitHub account's email): git config --global user.name \"Your Name\" and git config --global user.email \"you@example.com\""));
+        }
+        else
+        {
+            checks.Add(new DoctorCheck(DoctorCheckId.Git, "Git", CheckStatus.Ok, $"{git.Text}, commits as {gitName.Text}", null));
+        }
 
         var lfs = await lfsTask.ConfigureAwait(false);
         checks.Add(lfs.Ok

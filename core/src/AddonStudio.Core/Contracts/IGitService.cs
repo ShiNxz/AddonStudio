@@ -70,8 +70,18 @@ public interface IGitService
     Task<string> CreateGithubReleaseAsync(string repo, string tag, string title, string notes, IReadOnlyList<string> files, CancellationToken ct = default);
 
     /// <summary>
-    /// git.publishRepo: gh repo create &lt;name&gt; --private|--public --source &lt;repo&gt; --remote origin --push, with git.progress
-    /// events around it. git_failed with gh's message when gh is missing or not logged in.
+    /// git.publishRepo: gh repo create [&lt;owner&gt;/]&lt;name&gt; --private|--public --source &lt;repo&gt; --remote origin --push,
+    /// with git.progress events around it. A repo without commits gets its first commit before. git_failed with gh's
+    /// message when gh is missing or not logged in.
     /// </summary>
-    Task PublishRepoAsync(string repo, string name, bool isPrivate, IEventSink events, CancellationToken ct = default);
+    Task PublishRepoAsync(string repo, string? owner, string name, bool isPrivate, string? description, IEventSink events, CancellationToken ct = default);
+
+    /// <summary>git.githubOwners: gh's logged-in account plus its orgs. git_failed when gh is missing or not logged in.</summary>
+    Task<GithubOwners> GithubOwnersAsync(CancellationToken ct = default);
+
+    /// <summary>
+    /// Stages everything (git add -A) and commits it. Null when there was nothing to commit. A missing git name/email is
+    /// git_failed with the two config commands to run.
+    /// </summary>
+    Task<string?> CommitAllAsync(string repo, string message, CancellationToken ct = default);
 }

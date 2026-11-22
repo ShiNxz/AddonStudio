@@ -15,6 +15,7 @@ import type {
   GitCommitFile,
   GitFileChange,
   GitStatus,
+  GithubOwners,
   PackContents,
   PackExportResult,
   PackFile,
@@ -1056,13 +1057,22 @@ export const handlers: Record<string, MockHandler> = {
     return { commit: structuredClone(commit), files: structuredClone(s.files.get(commit.hash) ?? []) };
   },
 
-  "git.publishRepo": async ({ path, name }: { path: string; name: string; private: boolean }, ctx): Promise<ProjectInfo> => {
+  "git.githubOwners": async (_params: undefined, ctx): Promise<GithubOwners> => {
+    await sleep(400, ctx);
+    return { user: "you", orgs: ["example-community", "example-studio"] };
+  },
+
+  "git.publishRepo": async (
+    { path, owner, name }: { path: string; owner: string | null; name: string; private: boolean; description: string | null },
+    ctx,
+  ): Promise<ProjectInfo> => {
     const project = requireProject(path);
     const s = state(project);
     if (!/^[A-Za-z0-9._-]{1,100}$/.test(name)) throw new MockError("invalid_params", "Use letters, digits, . _ or - for the repo name.");
+    if (project.git.remote) throw new MockError("conflict", `This repo already has a remote (${project.git.remote}).`);
     await sleep(600, ctx);
     await gitProgress(ctx, "push", 120 * MIB);
-    project.git.remote = `https://github.com/next-dev/${name}.git`;
+    project.git.remote = `https://github.com/${owner ?? "you"}/${name}.git`;
     s.status.upstream = "origin/main";
     s.status.ahead = 0;
     s.status.behind = 0;

@@ -160,13 +160,13 @@ Dependencies: scan text roots for references and keep the ones that resolve to a
 All services are interfaces in `Contracts/` with one implementation class each. The host wires them with plain constructors (no DI container needed).
 
 ### 6.1 IEnvironmentService
-`Doctor()`: checks `os`, `steam` (Steam installed), `cs2`, `workshopTools`, `steamRunning`, `git`, `gitLfs`, `gh`. `Cs2Path()`, `CompilerPath()`. Each check has a fix text.
+`Doctor()`: checks `os`, `steam` (Steam installed), `cs2`, `workshopTools`, `steamRunning`, `git` (warn when `user.name`/`user.email` are not set, since commits fail), `gitLfs`, `gh` (only the active github.com account: `gh auth status --active --hostname github.com`). `Cs2Path()`, `CompilerPath()`. Each check has a fix text.
 
 ### 6.2 ISettingsStore
 `%APPDATA%/AddonStudio/settings.json` (macOS/Linux: `~/.config/AddonStudio/settings.json`), override with env `ADDONSTUDIO_HOME`. Portable: when `portable.txt` sits next to `addonstudio-core.exe`, the folder is `<exe dir>/data` (env still wins). Holds AppSettings and the recent projects list (max 50).
 
 ### 6.3 IProjectService
-`List`, `Open`, `Create` (layout + workshop.json + .gitattributes + .gitignore + `git init` + `git lfs install --local` when available), `Clone` (via IGitService, then open), `SaveConfig`, `Link`, `Remove` (from the recent list only, never deletes files), `ListCs2Addons` (addons found in CS2's content and game folders).
+`List`, `Open`, `Create` (layout + workshop.json + .gitattributes + .gitignore + `git init` + `git lfs install --local` when available, then a first commit "Create <addon>"), `Clone` (via IGitService, then open), `SaveConfig`, `Link`, `Remove` (from the recent list only, never deletes files), `ListCs2Addons` (addons found in CS2's content and game folders).
 
 ### 6.4 IImportService
 Turns an existing CS2 addon into a project.
@@ -174,7 +174,7 @@ Turns an existing CS2 addon into a project.
   - `skip` when a source we have produces it (expected-output table) or it is a Valve file.
   - `decompile` (only when `decompile` is true) for types that come back cleanly with ValveResourceFormat: panorama `vxml_c/vcss_c/vjs_c` -> xml/css/js, `vsvg_c` -> svg, panorama images `*_png.vtex_c` -> png, `vsnd_c` -> wav/mp3, `vsndevts_c` -> vsndevts. Only when the source file does not already exist.
   - `prebuilt` for everything else (models, materials, particles, maps...), copied to `prebuilt/<same path>`.
-- `Run(...)`: copies (never moves) into the repo, creates the project if needed, renames the old content folder to the backup name and links. The old build dir is left alone. A failed decompile falls back to `prebuilt` with a warning.
+- `Run(...)`: copies (never moves) into the repo, creates the project if needed, renames the old content folder to the backup name and links. A project the import created gets one first commit "Import <addon> from CS2" with everything in it; importing into an existing project leaves the changes uncommitted for review. A commit failure (for example no git name/email) is a warning, not an error. The old build dir is left alone. A failed decompile falls back to `prebuilt` with a warning.
 
 ### 6.5 IBuildService
 `Plan(path)`, `Run(path, mode, files, progress, ct)`, `Clean(path)`. Modes: `changed` (new/changed/failed roots + prebuilt mirror + deleted-root cleanup), `full` (every root + prebuilt mirror + deleted-root cleanup), `files` (given roots only). One build per project at a time (`busy` error). Event indexes are 0-based.
@@ -238,7 +238,8 @@ Also CLI verbs for testing on Windows without the UI, printing JSON: `doctor`, `
 | `git.push` / `git.pull` / `git.fetch` | `{ path }` (events `git.progress`) | `GitStatus` |
 | `git.log` | `{ path, limit, skip }` | `GitCommit[]` |
 | `git.show` | `{ path, hash }` | `GitCommitDetail` |
-| `git.publishRepo` | `{ path, name, private: boolean }` (events `git.progress`) | `ProjectInfo` (runs `gh repo create <name> --private\|--public --source <path> --remote origin --push`; `git_failed` with gh's message when gh is missing or not logged in) |
+| `git.publishRepo` | `{ path, owner: string \| null, name, private: boolean, description: string \| null }` | `ProjectInfo` (runs `gh repo create [<owner>/]<name> --private\|--public --source <path> --remote origin --push [--description ...]`; a repo with no commits gets its first commit first; `conflict` when it already has a remote; `git_failed` with gh's message when gh is missing or not logged in) |
+| `git.githubOwners` | - | `{ user: string, orgs: string[] }` (`gh api user` and `gh api user/orgs`; orgs need the `read:org` scope) |
 | `watch.set` | `{ path, enabled }` | `{ enabled }` |
 | `rpc.cancel` | `{ requestId }` | `{ cancelled: boolean }` |
 

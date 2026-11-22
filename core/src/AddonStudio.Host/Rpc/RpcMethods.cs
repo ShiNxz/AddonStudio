@@ -44,6 +44,7 @@ public static class RpcMethods
         "git.log",
         "git.show",
         "git.publishRepo",
+        "git.githubOwners",
         "watch.set",
         Cancel,
     ];
@@ -196,9 +197,12 @@ public static class RpcMethods
             {
                 var p = c.Bind<PublishRepoParams>();
                 var repo = RpcCall.Require(p.Path, "path");
-                await s.Git.PublishRepoAsync(repo, RpcCall.Require(p.Name, "name"), p.Private, c.Events, c.Ct);
+                await s.Git.PublishRepoAsync(repo, string.IsNullOrWhiteSpace(p.Owner) ? null : p.Owner.Trim(), RpcCall.Require(p.Name, "name"), p.Private,
+                    string.IsNullOrWhiteSpace(p.Description) ? null : p.Description.Trim(), c.Events, c.Ct);
                 return await s.Projects.OpenAsync(repo, c.Ct);
             },
+
+            ["git.githubOwners"] = async c => await s.Git.GithubOwnersAsync(c.Ct),
 
             ["watch.set"] = async c =>
             {

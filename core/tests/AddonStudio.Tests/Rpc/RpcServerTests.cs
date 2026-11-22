@@ -191,7 +191,7 @@ public sealed class RpcServerTests
         using var services = TestServices.Create();
         var handlers = RpcMethods.Create(services);
 
-        Assert.Equal(35, RpcMethods.Names.Count);
+        Assert.Equal(36, RpcMethods.Names.Count);
         Assert.Equal(RpcMethods.Names.Where(name => name != RpcMethods.Cancel).Order(), handlers.Keys.Order());
     }
 

@@ -38,7 +38,7 @@ public sealed class ImportServiceTests
     {
         using var kit = new ProjectKit();
         WriteFakeAddon(kit, "hud");
-        var import = new ImportService(kit.Projects, kit.Env);
+        var import = new ImportService(kit.Projects, kit.Env, kit.Git);
 
         var plan = await import.PlanAsync("hud", kit.Repo("hud"), decompile: true);
         var actions = plan.Items.ToDictionary(item => item.Path, item => (item.Action, item.Target));
@@ -66,7 +66,7 @@ public sealed class ImportServiceTests
     {
         using var kit = new ProjectKit();
         WriteFakeAddon(kit, "hud");
-        var import = new ImportService(kit.Projects, kit.Env);
+        var import = new ImportService(kit.Projects, kit.Env, kit.Git);
         var repo = kit.Repo("hud");
         var progress = new List<ImportProgressEvent>();
         var sink = new DelegateEventSink((name, data) =>

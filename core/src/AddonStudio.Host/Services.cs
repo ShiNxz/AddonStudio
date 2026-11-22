@@ -60,7 +60,7 @@ public sealed class Services : IDisposable
         var env = new EnvironmentService(settings);
         var git = new GitService();
         var projects = new ProjectService(settings, env, git);
-        var import = new ImportService(projects, env);
+        var import = new ImportService(projects, env, git);
         var build = new BuildService(projects, env, settings);
         long MaxPackBytes() => settings.Get().MaxPackBytes;
         var pack = new PackService(projects, env, MaxPackBytes);

@@ -15,11 +15,13 @@ public sealed class ImportService : IImportService
 
     private readonly IProjectService projects;
     private readonly IEnvironmentService env;
+    private readonly IGitService git;
 
-    public ImportService(IProjectService projects, IEnvironmentService env)
+    public ImportService(IProjectService projects, IEnvironmentService env, IGitService git)
     {
         this.projects = projects;
         this.env = env;
+        this.git = git;
     }
 
     public Task<ImportPlan> PlanAsync(string addon, string targetPath, bool decompile, CancellationToken ct = default)
@@ -33,9 +35,12 @@ public sealed class ImportService : IImportService
         var plan = work.Plan;
         var repo = plan.Path;
 
-        if (!File.Exists(Path.Combine(repo, WorkshopConfig.FileName)))
+        var created = !File.Exists(Path.Combine(repo, WorkshopConfig.FileName));
+
+        if (created)
         {
-            await projects.CreateAsync(repo, addon, Titleize(addon), ct).ConfigureAwait(false);
+            // committed once below, with the imported files in it
+            await projects.CreateAsync(repo, addon, Titleize(addon), ct, initialCommit: false).ConfigureAwait(false);
         }
 
         var warnings = plan.Warnings.ToList();
@@ -50,6 +55,22 @@ public sealed class ImportService : IImportService
         catch (AddonStudioException exception) when (exception.Code != ErrorCodes.Cancelled)
         {
             warnings.Add($"The files were imported, but linking into CS2 failed: {exception.Message}");
+        }
+
+        // a project made by this import starts with one commit holding everything; an existing one is left for the
+        // Changes tab so the import can be reviewed first
+        if (created && Directory.Exists(Path.Combine(repo, ".git")))
+        {
+            events.Emit(EventNames.ImportProgress, new ImportProgressEvent(counts.Copied, counts.Copied, "Creating the first commit (big addons take a while)"));
+
+            try
+            {
+                await git.CommitAllAsync(repo, $"Import {addon} from CS2", ct).ConfigureAwait(false);
+            }
+            catch (AddonStudioException exception) when (exception.Code == ErrorCodes.GitFailed)
+            {
+                warnings.Add($"The files were imported but not committed: {exception.Message}");
+            }
         }
 
         var project = await projects.OpenAsync(repo, ct).ConfigureAwait(false);

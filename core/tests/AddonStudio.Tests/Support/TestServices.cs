@@ -21,7 +21,7 @@ public static class TestServices
         env ??= new FakeEnvironment();
         git ??= new GitService();
         var projects = new ProjectService(settings, env, git);
-        var import = new ImportService(projects, env);
+        var import = new ImportService(projects, env, git);
         build ??= new BuildService(projects, env, settings);
         var pack = new PackService(projects, env);
         var steam = new SteamService(projects);

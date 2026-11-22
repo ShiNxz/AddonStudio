@@ -185,7 +185,7 @@ public sealed class GitService : IGitService
         }
 
         // the message goes through stdin, so any text and length is safe
-        await GitRunner.RunAsync(repo, ["commit", "-q", "-F", "-"], stdin: request.Message, ct: ct).ConfigureAwait(false);
+        await CommitStdinAsync(repo, request.Message, ct).ConfigureAwait(false);
 
         var hash = await HeadAsync(repo, ct).ConfigureAwait(false) ?? throw AddonStudioException.GitFailed("The commit did not create a HEAD.");
         var pushed = false;
@@ -515,32 +515,135 @@ public sealed class GitService : IGitService
     }
 
     /// <summary>
-    /// git.publishRepo: gh repo create &lt;name&gt; --private|--public --source &lt;repo&gt; --remote origin --push.
-    /// git_failed with gh's message when gh is missing or not logged in. Not on IGitService yet (see the report).
+    /// git.publishRepo: gh repo create [&lt;owner&gt;/]&lt;name&gt; --private|--public --source &lt;repo&gt; --remote origin --push.
+    /// gh refuses to push a repo with no commits, so a fresh one gets its first commit here.
     /// </summary>
-    public async Task PublishRepoAsync(string repo, string name, bool isPrivate, IEventSink events, CancellationToken ct = default)
+    public async Task PublishRepoAsync(string repo, string? owner, string name, bool isPrivate, string? description, IEventSink events, CancellationToken ct = default)
     {
         RequireRepo(repo);
+        name = name.Trim();
 
-        if (string.IsNullOrWhiteSpace(name) || name.TrimStart().StartsWith('-'))
+        if (!RepoNamePattern.IsMatch(name))
         {
-            throw AddonStudioException.InvalidParams($"Not a repo name: \"{name}\".");
+            throw AddonStudioException.InvalidParams($"\"{name}\" is not a valid repo name: use letters, digits, '-', '_' or '.', up to 100 characters.");
         }
 
-        events.Emit(EventNames.GitProgress, new GitProgressEvent("create", null, $"Creating {(isPrivate ? "private" : "public")} GitHub repo {name.Trim()} and pushing"));
+        if (owner != null && !OwnerPattern.IsMatch(owner))
+        {
+            throw AddonStudioException.InvalidParams($"\"{owner}\" is not a valid GitHub account or organization name.");
+        }
 
-        var result = await GitRunner.RunToolAsync("gh", repo,
-                ["repo", "create", name.Trim(), isPrivate ? "--private" : "--public", "--source", Paths.Full(repo), "--remote", "origin", "--push"], ct)
-            .ConfigureAwait(false)
-            ?? throw AddonStudioException.GitFailed("gh (GitHub CLI) is not installed. Install it from https://cli.github.com and run \"gh auth login\" once.");
+        if (await RemoteUrlAsync(repo, ct).ConfigureAwait(false) is { } existing)
+        {
+            throw new AddonStudioException(ErrorCodes.Conflict, $"This repo already has a remote ({existing}).");
+        }
+
+        if (await HeadAsync(repo, ct).ConfigureAwait(false) == null)
+        {
+            events.Emit(EventNames.GitProgress, new GitProgressEvent("commit", null, "Creating the first commit"));
+
+            if (await CommitAllAsync(repo, "First commit", ct).ConfigureAwait(false) == null)
+            {
+                throw AddonStudioException.InvalidParams("The project has no files to push yet.");
+            }
+        }
+
+        var fullName = owner == null ? name : $"{owner}/{name}";
+        events.Emit(EventNames.GitProgress, new GitProgressEvent("create", null,
+            $"Creating {(isPrivate ? "private" : "public")} GitHub repo {fullName} and pushing (big LFS files can take a while)"));
+
+        var args = new List<string> { "repo", "create", fullName, isPrivate ? "--private" : "--public", "--source", Paths.Full(repo), "--remote", "origin", "--push" };
+
+        if (!string.IsNullOrWhiteSpace(description))
+        {
+            args.AddRange(["--description", description.Trim()]);
+        }
+
+        var result = await GitRunner.RunToolAsync("gh", repo, args, ct).ConfigureAwait(false)
+            ?? throw AddonStudioException.GitFailed(GhMissing);
 
         if (!result.Succeeded)
         {
             throw AddonStudioException.GitFailed($"gh repo create failed: {result.ErrorText}");
         }
 
-        events.Emit(EventNames.GitProgress, new GitProgressEvent("done", 100, "Created the GitHub repo and pushed"));
+        events.Emit(EventNames.GitProgress, new GitProgressEvent("done", 100, $"Created {fullName} on GitHub and pushed"));
     }
+
+    /// <summary>git.githubOwners: gh api user for the login, gh api user/orgs for the orgs (empty when that call fails).</summary>
+    public async Task<GithubOwners> GithubOwnersAsync(CancellationToken ct = default)
+    {
+        var user = await GitRunner.RunToolAsync("gh", null, ["api", "user", "--jq", ".login"], ct).ConfigureAwait(false)
+            ?? throw AddonStudioException.GitFailed(GhMissing);
+
+        if (!user.Succeeded || string.IsNullOrWhiteSpace(user.Stdout))
+        {
+            throw AddonStudioException.GitFailed($"gh is not logged in to github.com. Run \"gh auth login\" once. ({user.ErrorText})");
+        }
+
+        var orgs = await GitRunner.RunToolAsync("gh", null, ["api", "user/orgs", "--paginate", "--jq", ".[].login"], ct).ConfigureAwait(false);
+        var orgList = orgs is { Succeeded: true }
+            ? orgs.Stdout.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).Distinct(StringComparer.OrdinalIgnoreCase).Order(StringComparer.OrdinalIgnoreCase).ToList()
+            : [];
+
+        if (orgs is { Succeeded: false })
+        {
+            Log.Warn($"gh api user/orgs failed, listing only the user: {orgs.ErrorText}");
+        }
+
+        return new GithubOwners(user.Stdout.Trim(), orgList);
+    }
+
+    /// <summary>git add -A, then a commit when anything is staged. Null when there was nothing to commit.</summary>
+    public async Task<string?> CommitAllAsync(string repo, string message, CancellationToken ct = default)
+    {
+        RequireRepo(repo);
+        await GitRunner.RunAsync(repo, ["add", "-A"], ct: ct).ConfigureAwait(false);
+
+        // exit 0 = nothing staged (works on a branch with no commits too)
+        var staged = await GitRunner.RunRawAsync(repo, ["diff", "--cached", "--quiet"], ct: ct).ConfigureAwait(false);
+
+        if (staged.ExitCode == 0)
+        {
+            return null;
+        }
+
+        await CommitStdinAsync(repo, message, ct).ConfigureAwait(false);
+
+        return await HeadAsync(repo, ct).ConfigureAwait(false);
+    }
+
+    /// <summary>git commit -F - with the message on stdin; a missing name/email becomes a clear error.</summary>
+    private static async Task CommitStdinAsync(string repo, string message, CancellationToken ct)
+    {
+        var result = await GitRunner.RunRawAsync(repo, ["commit", "-q", "-F", "-"], stdin: message, ct: ct).ConfigureAwait(false);
+
+        if (result.Succeeded)
+        {
+            return;
+        }
+
+        var text = result.ErrorText;
+
+        if (text.Contains("tell me who you are", StringComparison.OrdinalIgnoreCase) ||
+            text.Contains("empty ident", StringComparison.OrdinalIgnoreCase) ||
+            text.Contains("unable to auto-detect email", StringComparison.OrdinalIgnoreCase))
+        {
+            throw AddonStudioException.GitFailed(MissingIdentity);
+        }
+
+        throw GitRunner.Failed(["commit"], result);
+    }
+
+    internal const string MissingIdentity =
+        "Git does not know your name and email yet, so it can not commit. Run these two once in a terminal, then commit again: " +
+        "git config --global user.name \"Your Name\" and git config --global user.email \"you@example.com\" (the email of your GitHub account).";
+
+    private const string GhMissing = "gh (GitHub CLI) is not installed. Install it from https://cli.github.com and run \"gh auth login\" once.";
+
+    private static readonly System.Text.RegularExpressions.Regex RepoNamePattern = new(@"^[A-Za-z0-9._-]{1,100}$");
+
+    private static readonly System.Text.RegularExpressions.Regex OwnerPattern = new(@"^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})$");
 
     private static GitCommit ToCommit(GitParsers.RawCommit raw, IReadOnlyList<GitTag> allTags, string pattern)
     {
