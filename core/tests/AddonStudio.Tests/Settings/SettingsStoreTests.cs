@@ -53,4 +53,15 @@ public sealed class SettingsStoreTests
         Assert.Null(json["recentProjects"]![0]!["exists"]);
         Assert.Empty(Directory.GetFiles(home, "*.tmp"));
     }
+
+    [Fact]
+    public void PortableMarkerNextToTheExeKeepsSettingsInItsDataFolder()
+    {
+        using var temp = new TempDir();
+        Assert.Null(SettingsStore.PortableHomeDir(temp.Path));
+        Assert.Null(SettingsStore.PortableHomeDir(null));
+
+        File.WriteAllText(Path.Combine(temp.Path, SettingsStore.PortableMarker), "portable");
+        Assert.Equal(Path.Combine(temp.Path, "data"), SettingsStore.PortableHomeDir(temp.Path));
+    }
 }

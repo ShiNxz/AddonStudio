@@ -16,3 +16,6 @@ app/src-tauri/binaries/*
 *.tsbuildinfo
 
 .DS_Store
+
+# portable app output (scripts/package-portable.ps1)
+/dist/

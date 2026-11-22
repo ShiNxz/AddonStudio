@@ -8,7 +8,7 @@ This file is the contract every part of the codebase follows. If something here 
 
 - v1 runs on Windows only for compile and publish. Valve's compiler (`resourcecompiler.exe`) is Windows-only and we do not use Wine.
 - The core still builds and its tests run on macOS/Linux, so development and CI work off Windows. Anything that needs CS2, the compiler or the Steam client fails there with a clear error code (`not_windows`, `cs2_missing`, `tools_missing`, `steam_unavailable`).
-- No GitHub Actions for addons. Build and publish run in the app on the user's PC. (The app itself has a CI workflow that builds its Windows installer, see section 9.)
+- No GitHub Actions for addons. Build and publish run in the app on the user's PC. (The app itself has a CI workflow that builds its portable Windows build, see section 9.)
 - No headless agent, no Mac compile, no map compiling (maps and other things we can not rebuild go in `prebuilt/`).
 
 ## 2. The pipeline
@@ -163,7 +163,7 @@ All services are interfaces in `Contracts/` with one implementation class each. 
 `Doctor()`: checks `os`, `steam` (Steam installed), `cs2`, `workshopTools`, `steamRunning`, `git`, `gitLfs`, `gh`. `Cs2Path()`, `CompilerPath()`. Each check has a fix text.
 
 ### 6.2 ISettingsStore
-`%APPDATA%/AddonStudio/settings.json` (macOS/Linux: `~/.config/AddonStudio/settings.json`), override with env `ADDONSTUDIO_HOME`. Holds AppSettings and the recent projects list (max 50).
+`%APPDATA%/AddonStudio/settings.json` (macOS/Linux: `~/.config/AddonStudio/settings.json`), override with env `ADDONSTUDIO_HOME`. Portable: when `portable.txt` sits next to `addonstudio-core.exe`, the folder is `<exe dir>/data` (env still wins). Holds AppSettings and the recent projects list (max 50).
 
 ### 6.3 IProjectService
 `List`, `Open`, `Create` (layout + workshop.json + .gitattributes + .gitignore + `git init` + `git lfs install --local` when available), `Clone` (via IGitService, then open), `SaveConfig`, `Link`, `Remove` (from the recent list only, never deletes files), `ListCs2Addons` (addons found in CS2's content and game folders).
@@ -336,9 +336,9 @@ interface CommitResult { hash: string; pushed: boolean; autoPublish: { version: 
 
 ## 9. Packaging and the app's own CI
 
-- `app/src-tauri/`: Tauri 2, NSIS installer, window 1280x800 (min 1024x640), native title bar with theme following the app, `transparent: true` and `windowEffects: { effects: ["mica"] }` so the Windows 11 Mica backdrop shows through, the sidecar declared in `bundle.externalBin` as `binaries/addonstudio-core` (Tauri appends the target triple, e.g. `addonstudio-core-x86_64-pc-windows-msvc.exe`). Capabilities allow spawning only that sidecar with stdin writes.
+- `app/src-tauri/`: Tauri 2, no installer (`bundle.active: false`, the app ships portable: `AddonStudio.exe` + `addonstudio-core.exe` + `portable.txt`, settings in a `data` folder next to the exe when `portable.txt` is there), window 1280x800 (min 1024x640), native title bar with theme following the app, `transparent: true` and `windowEffects: { effects: ["mica"] }` so the Windows 11 Mica backdrop shows through, the sidecar declared in `bundle.externalBin` as `binaries/addonstudio-core` (Tauri appends the target triple, e.g. `addonstudio-core-x86_64-pc-windows-msvc.exe`). Capabilities allow spawning only that sidecar with stdin writes.
 - `scripts/build-sidecar.ps1` and `scripts/build-sidecar.sh`: `dotnet publish core/src/AddonStudio.Host -c Release -r <rid> --self-contained -p:PublishSingleFile=true` and copy to `app/src-tauri/binaries/addonstudio-core-<triple>[.exe]`.
-- `.github/workflows/app.yml`: on `workflow_dispatch` and tags `app-v*`, on `windows-latest`: .NET 10, Node 24, Rust stable, build the sidecar for win-x64, `npm ci`, `npm run tauri build`, upload the NSIS installer as an artifact, and on a tag attach it to a draft release. Also a `check` job on ubuntu-latest that runs `dotnet test` and `npm run build`.
+- `.github/workflows/app.yml`: on `workflow_dispatch` and tags `app-v*`, on `windows-latest`: .NET 10, Node 24, Rust stable, build the sidecar for win-x64, `npm ci`, `npm run tauri build -- --no-bundle`, `scripts/package-portable.ps1`, upload the portable folder as an artifact, and on a tag attach the zip to a draft release. Also a `check` job on ubuntu-latest that runs `dotnet test` and `npm run build`.
 
 ## 10. This repo
 
@@ -369,7 +369,7 @@ Gaps the sections above left open, settled in the code:
 - `git.commit` with `push: true`: a failed push (or no remote) still returns the commit, with `pushed: false` and a `git.progress` event with phase `push failed`.
 - Publish: our uploader (`Publish/WorkshopUploader.cs`) mirrors `PublishAsync` on our own `SteamClient(730)` and stages with `Pack/AddonVpk` under `maxPackBytes`; the library's static Steam client is never opened. The VPK is named `<workshopId>_dir.vpk` (a new item is created first, then staged). `pack.export` before the first publish names it `<addon>_dir.vpk`. A new item with no tags gets Valve's default tags ("CS2", "Map").
 - Timestamps: deploy tags are UTC (as above); the link backup and export folder names use local time, since the user sees those folders.
-- The core ships as an uncompressed single file: the compressed bundle (SDK 10.0.301, osx-arm64) crashed with AccessViolationException when two requests loaded assemblies at once. The installer compresses it anyway.
+- The core ships as an uncompressed single file: the compressed bundle (SDK 10.0.301, osx-arm64) crashed with AccessViolationException when two requests loaded assemblies at once. The portable zip compresses it anyway.
 - CLI: `pack <repo> [--out <dir> | --contents]` exports the VPK or lists it; `status <repo>` prints `steam.status`; `publish` also takes `--skip-build --push --github-release --allow-source-change`.
 - App: Vite serves on port 1420 (strict), which `tauri.conf.json` devUrl matches. Tauri identifier `dev.addonstudio.desktop` (an id ending in `.app` clashes with the macOS bundle extension). The app version comes from `app/package.json`, the core's from `core/Directory.Build.props`. The capability also allows `core:window:allow-set-theme`, `dialog:allow-open` and `opener:allow-open-url` (steamcommunity.com and steam://).
 - Watching is on while the Build tab is open with `autoBuild`; the Changes tab refreshes git.status on window focus and with its refresh button.

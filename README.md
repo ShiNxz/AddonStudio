@@ -37,9 +37,9 @@ core/src/AddonStudio.Host/ addonstudio-core: JSON-lines RPC on stdin/stdout + CL
 core/tests/                xunit tests
 app/                       Vite + React 19 + TypeScript + Tailwind v4 + HeroUI v3
 app/src/rpc/               typed RPC client, Tauri transport (spawns the sidecar) and a mock transport
-app/src-tauri/             Tauri 2 shell: window, plugins (shell, dialog, opener), capabilities, NSIS bundle
-scripts/                   build-sidecar.ps1 / build-sidecar.sh, make-icon.mjs
-.github/workflows/app.yml  builds the Windows installer
+app/src-tauri/             Tauri 2 shell: window, plugins (shell, dialog, opener), capabilities (bundling off: the app ships portable)
+scripts/                   build-sidecar.ps1 / build-sidecar.sh, package-portable.ps1, make-icon.mjs
+.github/workflows/app.yml  builds the portable Windows app
 ```
 
 ## Development
@@ -95,11 +95,13 @@ cd app && npx tsc --noEmit && npx vite build
 cd app/src-tauri && cargo check
 ```
 
-## Building the installer
+## Building the portable app
 
-On Windows: `scripts\build-sidecar.ps1 -Rid win-x64`, then `npm ci` and `npm run tauri build` in `app/`. The NSIS installer lands in `app/src-tauri/target/release/bundle/nsis/`.
+Addon Studio ships as a portable folder, not an installer: `AddonStudio.exe`, `addonstudio-core.exe` and `portable.txt`. With `portable.txt` next to the exe, settings live in a `data` folder beside it (delete the file to use `%APPDATA%\AddonStudio` instead). It needs the WebView2 Runtime, which Windows 10 and 11 normally have.
 
-CI does the same: [.github/workflows/app.yml](.github/workflows/app.yml) runs on "Run workflow" and on tags `app-v*`. It uploads the installer as an artifact and, for a tag, attaches it to a draft release. A second job runs the core tests and the frontend build on Linux. The app version comes from `app/package.json`.
+On Windows: `scripts\build-sidecar.ps1 -Rid win-x64`, then `npm ci` and `npm run tauri build -- --no-bundle` in `app/`, then `scripts\package-portable.ps1`. The folder lands in `dist/AddonStudio/` with a zip next to it.
+
+CI does the same: [.github/workflows/app.yml](.github/workflows/app.yml) runs on "Run workflow" and on tags `app-v*`. It uploads the portable folder as an artifact and, for a tag, attaches the zip to a draft release. A second job runs the core tests and the frontend build on Linux. The app version comes from `app/package.json`.
 
 ## App icon
 

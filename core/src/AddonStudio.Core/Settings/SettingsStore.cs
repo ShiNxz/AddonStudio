@@ -29,7 +29,13 @@ public sealed class SettingsStore : ISettingsStore
 
     public string SettingsPath { get; }
 
-    /// <summary>$ADDONSTUDIO_HOME, else %APPDATA%/AddonStudio on Windows, ~/.config/AddonStudio elsewhere.</summary>
+    /// <summary>A file with this name next to addonstudio-core.exe makes the app portable: settings live in a data folder beside it.</summary>
+    public const string PortableMarker = "portable.txt";
+
+    /// <summary>
+    /// $ADDONSTUDIO_HOME, else the portable data folder when portable.txt sits next to the core exe,
+    /// else %APPDATA%/AddonStudio on Windows, ~/.config/AddonStudio elsewhere.
+    /// </summary>
     public static string DefaultHomeDir()
     {
         var overrideDir = Environment.GetEnvironmentVariable(HomeEnvVar);
@@ -37,6 +43,11 @@ public sealed class SettingsStore : ISettingsStore
         if (!string.IsNullOrWhiteSpace(overrideDir))
         {
             return overrideDir.Trim();
+        }
+
+        if (PortableHomeDir(AppContext.BaseDirectory) is { } portable)
+        {
+            return portable;
         }
 
         if (OperatingSystem.IsWindows())
@@ -52,6 +63,17 @@ public sealed class SettingsStore : ISettingsStore
         var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
 
         return Path.Combine(string.IsNullOrEmpty(home) ? Path.GetTempPath() : home, ".config", "AddonStudio");
+    }
+
+    /// <summary><paramref name="exeDir"/>/data when <paramref name="exeDir"/> holds the portable marker, else null.</summary>
+    internal static string? PortableHomeDir(string? exeDir)
+    {
+        if (string.IsNullOrWhiteSpace(exeDir))
+        {
+            return null;
+        }
+
+        return File.Exists(Path.Combine(exeDir, PortableMarker)) ? Path.Combine(exeDir, "data") : null;
     }
 
     public AppSettings Get()
