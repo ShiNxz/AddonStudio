@@ -35,7 +35,7 @@ public sealed class EnvironmentService : IEnvironmentService
         var gitTask = ToolVersionAsync("git", ["--version"], ct);
         var lfsTask = ToolVersionAsync("git", ["lfs", "version"], ct);
         var ghTask = ToolVersionAsync("gh", ["--version"], ct);
-        var ghAuthTask = ToolVersionAsync("gh", ["auth", "status"], ct);
+        var ghAuthTask = GhAuthAsync(ct);
 
         var lookup = Lookup();
         var cs2 = lookup.Path;
@@ -98,8 +98,9 @@ public sealed class EnvironmentService : IEnvironmentService
         else if (!ghAuth.Ok)
         {
             checks.Add(new DoctorCheck(DoctorCheckId.Gh, "GitHub CLI", CheckStatus.Warn,
-                $"{gh.Text}, not logged in.",
-                "Run: gh auth login (GitHub.com, HTTPS, log in with the browser). " + LfsDocFix));
+                $"{gh.Text}. gh auth status says: {ghAuth.Text}",
+                "Run: gh auth login (GitHub.com, HTTPS, log in with the browser), then Check again. " +
+                "If you are logged in already, run gh auth status in a terminal and fix the account it marks with X. " + LfsDocFix));
         }
         else
         {
@@ -363,6 +364,68 @@ public sealed class EnvironmentService : IEnvironmentService
         {
             return new ToolResult(false, exception.Message);
         }
+    }
+
+    /// <summary>
+    /// Whether gh is logged in to github.com. Plain "gh auth status" exits 1 when ANY saved account or host has a
+    /// problem (an old second account, an enterprise host), so only the active github.com account is asked about.
+    /// It checks the token online, so it gets a longer timeout than the version checks.
+    /// </summary>
+    private static async Task<ToolResult> GhAuthAsync(CancellationToken ct)
+    {
+        var executable = ProcessRunner.FindExecutable("gh");
+
+        if (executable == null)
+        {
+            return new ToolResult(false, "gh was not found in PATH.");
+        }
+
+        try
+        {
+            var options = new ProcessOptions { Timeout = TimeSpan.FromSeconds(30) };
+            var result = await ProcessRunner.RunAsync(executable, ["auth", "status", "--active", "--hostname", "github.com"], options, ct).ConfigureAwait(false);
+
+            // gh older than 2.40 has no --active
+            if (!result.Succeeded && !result.TimedOut && (result.Stdout + result.Stderr).Contains("unknown flag", StringComparison.OrdinalIgnoreCase))
+            {
+                result = await ProcessRunner.RunAsync(executable, ["auth", "status", "--hostname", "github.com"], options, ct).ConfigureAwait(false);
+            }
+
+            if (result.TimedOut)
+            {
+                return new ToolResult(false, "no answer in 30 seconds (it checks the token online, is GitHub reachable?).");
+            }
+
+            return result.ExitCode == 0
+                ? new ToolResult(true, "logged in")
+                : new ToolResult(false, GhAuthReason(result.Stdout + "\n" + result.Stderr));
+        }
+        catch (ProcessStartException exception)
+        {
+            return new ToolResult(false, exception.Message);
+        }
+    }
+
+    /// <summary>The lines of gh auth status output that say what is wrong, with anything token-like masked.</summary>
+    internal static string GhAuthReason(string output)
+    {
+        var lines = output.Split('\n')
+            .Select(line => line.Trim().TrimStart('X', 'x', '!', '-', '✓', '×', ' ').Trim())
+            .Where(line => line.Length > 0)
+            .ToList();
+
+        var problems = lines.Where(line =>
+                line.Contains("fail", StringComparison.OrdinalIgnoreCase) ||
+                line.Contains("invalid", StringComparison.OrdinalIgnoreCase) ||
+                line.Contains("not logged", StringComparison.OrdinalIgnoreCase) ||
+                line.Contains("expired", StringComparison.OrdinalIgnoreCase) ||
+                line.Contains("error", StringComparison.OrdinalIgnoreCase))
+            .Take(2)
+            .ToList();
+
+        var text = problems.Count > 0 ? string.Join(" ", problems) : lines.LastOrDefault() ?? "it exited with an error and printed nothing.";
+
+        return System.Text.RegularExpressions.Regex.Replace(text, @"\b(gh[opsu]|github_pat)_[A-Za-z0-9_]{6,}", "$1_***");
     }
 
     private static string FirstLine(string text)
