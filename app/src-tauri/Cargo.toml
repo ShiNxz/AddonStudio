@@ -1,0 +1,30 @@
+[package]
+name = "addon-studio"
+version = "0.1.0"
+description = "Manage CS2 Workshop addons as git repos: build, pack and publish"
+authors = ["Next"]
+license = "MIT"
+edition = "2021"
+rust-version = "1.77.2"
+
+[lib]
+# desktop only, no mobile targets
+name = "addon_studio_lib"
+crate-type = ["rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+# devtools: Inspect (Ctrl+Shift+I) works in release builds too, the core's stderr shows there as [core] lines
+tauri = { version = "2", features = ["devtools"] }
+tauri-plugin-shell = "2"
+tauri-plugin-dialog = "2"
+tauri-plugin-opener = "2"
+
+[profile.release]
+codegen-units = 1
+lto = true
+opt-level = "s"
+panic = "abort"
+strip = true

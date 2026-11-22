@@ -1,0 +1,9 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/AddonStudio.Core/AddonStudio.Core.csproj" />
+    <Project Path="src/AddonStudio.Host/AddonStudio.Host.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/AddonStudio.Tests/AddonStudio.Tests.csproj" />
+  </Folder>
+</Solution>

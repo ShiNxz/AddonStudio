@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="en" class="dark" data-theme="dark">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="color-scheme" content="dark light" />
+    <title>Addon Studio</title>
+    <style>
+      /* the right theme before the CSS loads, no white flash */
+      html,
+      body {
+        margin: 0;
+        background: #202020;
+        color: #ffffff;
+        font-family: "Segoe UI Variable Text", "Segoe UI Variable", "Segoe UI", system-ui, sans-serif;
+      }
+      html.light,
+      html.light body {
+        background: #f3f3f3;
+        color: #1b1b1b;
+      }
+    </style>
+    <script>
+      // same key as src/app/theme.ts
+      (function () {
+        var theme = "dark";
+        try {
+          theme = localStorage.getItem("addonstudio.theme") || "dark";
+        } catch (e) {}
+        if (theme === "system") {
+          theme = window.matchMedia && !window.matchMedia("(prefers-color-scheme: dark)").matches ? "light" : "dark";
+        }
+        var root = document.documentElement;
+        root.classList.remove("dark", "light");
+        root.classList.add(theme === "light" ? "light" : "dark");
+        root.setAttribute("data-theme", theme === "light" ? "light" : "dark");
+      })();
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

@@ -1,0 +1,22 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Library</OutputType>
+    <RootNamespace>AddonStudio.Core</RootNamespace>
+    <AssemblyName>AddonStudio.Core</AssemblyName>
+    <!-- Windows P/Invokes (job objects for child processes) -->
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- packing and publishing, same rules as Valve's workshop manager. Steamworks.dll ships inside its lib folder -->
+    <PackageReference Include="CS2WorkshopManager" Version="1.5.0" />
+    <!-- the versions CS2WorkshopManager 1.5.0 is built against, referenced directly for VPK reading and decompiling -->
+    <PackageReference Include="ValvePak" Version="6.0.0.182" />
+    <PackageReference Include="ValveResourceFormat" Version="20.0.6980" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="AddonStudio.Tests" />
+    <InternalsVisibleTo Include="addonstudio-core" />
+  </ItemGroup>
+</Project>

@@ -1,0 +1,27 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <RootNamespace>AddonStudio.Host</RootNamespace>
+    <!-- the sidecar the Tauri app spawns: addonstudio-core.exe -->
+    <AssemblyName>addonstudio-core</AssemblyName>
+
+    <!-- single file friendly: scripts/build-sidecar.* publish with -r <rid> self-contained -p:PublishSingleFile=true -->
+    <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
+    <!-- no bundle compression: the compressed osx-arm64 bundle (SDK 10.0.301) crashed with AccessViolationException as soon
+         two requests loaded assemblies at once. The NSIS installer compresses the exe anyway. -->
+    <EnableCompressionInSingleFile>false</EnableCompressionInSingleFile>
+    <CopyOutputSymbolsToPublishDirectory>false</CopyOutputSymbolsToPublishDirectory>
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+    <ServerGarbageCollection>false</ServerGarbageCollection>
+    <ConcurrentGarbageCollection>false</ConcurrentGarbageCollection>
+    <UseSystemResourceKeys>false</UseSystemResourceKeys>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\AddonStudio.Core\AddonStudio.Core.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="AddonStudio.Tests" />
+  </ItemGroup>
+</Project>

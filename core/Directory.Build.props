@@ -1,0 +1,25 @@
+<Project>
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
+    <Deterministic>true</Deterministic>
+    <NeutralLanguage>en</NeutralLanguage>
+    <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
+    <!-- symbols inside the assemblies, so a single-file publish is one exe -->
+    <DebugType>embedded</DebugType>
+
+    <!-- the one place the core's version lives, app.info reports it -->
+    <Version>0.1.0</Version>
+    <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
+
+    <!-- a plain "dotnet build" leaves obj/ and bin/ next to the project: never compile their generated files when
+         building with an artifacts path (parallel builds use one each) -->
+    <DefaultItemExcludes>$(DefaultItemExcludes);obj/**;bin/**</DefaultItemExcludes>
+
+    <Authors>Next</Authors>
+    <Product>Addon Studio</Product>
+  </PropertyGroup>
+</Project>

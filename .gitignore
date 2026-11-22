@@ -1,0 +1,18 @@
+# .NET
+bin/
+obj/
+
+# app
+node_modules/
+app/dist/
+app/src-tauri/target/
+app/src-tauri/binaries/*
+!app/src-tauri/binaries/.gitkeep
+
+# Addon Studio local state inside addon repos and test fixtures
+.addonstudio/
+
+# stale TypeScript incremental build info
+*.tsbuildinfo
+
+.DS_Store
