@@ -139,6 +139,7 @@ public sealed class WatchService : IWatchService
         private readonly FileSystemWatcher watcher;
         private readonly Timer timer;
         private readonly HashSet<string> pending = new(Paths.RelComparer);
+        private readonly HashSet<string> appeared = new(Paths.RelComparer);
         private readonly object gate = new();
         private bool disposed;
 
@@ -158,12 +159,12 @@ public sealed class WatchService : IWatchService
             };
 
             watcher.Changed += (_, e) => Add(e.Name);
-            watcher.Created += (_, e) => Add(e.Name);
+            watcher.Created += (_, e) => Add(e.Name, appearedHere: true);
             watcher.Deleted += (_, e) => Add(e.Name);
             watcher.Renamed += (_, e) =>
             {
                 Add(e.OldName);
-                Add(e.Name);
+                Add(e.Name, appearedHere: true);
             };
             // a buffer overflow loses events: report the watched folders themselves so the UI rebuilds
             watcher.Error += (_, _) =>
@@ -177,7 +178,7 @@ public sealed class WatchService : IWatchService
             watcher.EnableRaisingEvents = true;
         }
 
-        private void Add(string? name)
+        private void Add(string? name, bool appearedHere = false)
         {
             if (Filter(folders, name) is not { } relative)
             {
@@ -192,6 +193,12 @@ public sealed class WatchService : IWatchService
                 }
 
                 pending.Add(relative);
+
+                if (appearedHere)
+                {
+                    appeared.Add(relative);
+                }
+
                 timer.Change(debounce, Timeout.InfiniteTimeSpan);
             }
         }
@@ -199,6 +206,7 @@ public sealed class WatchService : IWatchService
         private void Flush()
         {
             List<string> files;
+            List<string> folders;
 
             lock (gate)
             {
@@ -207,11 +215,47 @@ public sealed class WatchService : IWatchService
                     return;
                 }
 
-                files = pending.Order(StringComparer.OrdinalIgnoreCase).ToList();
+                files = pending.ToList();
+                folders = appeared.ToList();
                 pending.Clear();
+                appeared.Clear();
             }
 
-            raise(new WatchChangedEvent(repo, files));
+            raise(new WatchChangedEvent(repo, ExpandFolders(repo, files, folders)));
+        }
+
+        /// <summary>
+        /// A folder that appears (created, moved or renamed in) raises one event for itself only, and on Linux files
+        /// written right after a folder is made can land before its watch exists. After the debounce, every changed
+        /// path that appeared and is a folder also brings the files under it.
+        /// </summary>
+        private static List<string> ExpandFolders(string repo, List<string> changed, List<string> appeared)
+        {
+            var result = new HashSet<string>(changed, Paths.RelComparer);
+
+            foreach (var entry in appeared)
+            {
+                var full = Path.Combine(repo, entry.Replace('/', Path.DirectorySeparatorChar));
+
+                try
+                {
+                    if (!Directory.Exists(full))
+                    {
+                        continue;
+                    }
+
+                    foreach (var file in Directory.EnumerateFiles(full, "*", SearchOption.AllDirectories).Take(5000))
+                    {
+                        result.Add(Path.GetRelativePath(repo, file).Replace('\\', '/'));
+                    }
+                }
+                catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+                {
+                    // the folder went away or is locked; the folder itself is still reported
+                }
+            }
+
+            return result.Order(StringComparer.OrdinalIgnoreCase).ToList();
         }
 
         public void Dispose()
