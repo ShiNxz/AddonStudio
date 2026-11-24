@@ -696,6 +696,18 @@ public sealed partial class BuildService : IBuildService
             events.Emit(EventNames.BuildLog, new BuildLogEvent(job.Source, line));
         }
 
+        // only an unchanged root may keep outputs resourcecompiler calls up to date; any other must write them now
+        var mustRewrite = job.Status != RootStatus.Unchanged;
+
+        if (mustRewrite)
+        {
+            foreach (var line in RemoveOldOutputs(buildDir, job.Outputs))
+            {
+                log.AppendLine(line);
+                events.Emit(EventNames.BuildLog, new BuildLogEvent(job.Source, line));
+            }
+        }
+
         var started = DateTime.UtcNow;
         var stopwatch = Stopwatch.StartNew();
         int? exitCode = null;
@@ -741,10 +753,13 @@ public sealed partial class BuildService : IBuildService
         lock (gate)
         {
             var notWritten = job.Outputs.Where(output => !IsFresh(buildDir, output, started)).ToList();
+            var upToDate = ReportsUpToDate(log.ToString());
 
-            // resourcecompiler leaves outputs it thinks are up to date alone (a full rebuild or a new fingerprint with
-            // unchanged sources): exit 0, every output there and its summary saying it skipped them is a success too
-            if (exitCode == 0 && notWritten.Count > 0 && errors.Count == 0 && ReportsUpToDate(log.ToString())
+            // resourcecompiler leaves outputs it thinks are up to date alone. For an unchanged root (a full rebuild,
+            // or a files build of it) exit 0, every output there and its summary saying it skipped them is a success
+            // too. A new, changed or failed root never gets this: resourcecompiler has called changed sources up to
+            // date and kept their old outputs, which then got packed and published.
+            if (!mustRewrite && exitCode == 0 && notWritten.Count > 0 && errors.Count == 0 && upToDate
                 && notWritten.All(output => File.Exists(Path.Combine(buildDir, Paths.ToNative(output)))))
             {
                 notWritten.Clear();
@@ -770,7 +785,7 @@ public sealed partial class BuildService : IBuildService
             }
             else if (notWritten.Count > 0)
             {
-                errors.AddRange(notWritten.Select(output => $"expected output not written: {output}"));
+                errors.AddRange(notWritten.Select(output => NotWrittenError(buildDir, output, upToDate)));
                 status = ItemStatus.Error;
             }
             else
@@ -850,6 +865,43 @@ public sealed partial class BuildService : IBuildService
     [System.Text.RegularExpressions.GeneratedRegex(@"\b0\s+compiled\b.*\b[1-9]\d*\s+skipped\b|\bup[\s-]to[\s-]date\b",
         System.Text.RegularExpressions.RegexOptions.IgnoreCase)]
     private static partial System.Text.RegularExpressions.Regex UpToDatePattern();
+
+    /// <summary>
+    /// Deletes a root's outputs from the build dir before it compiles, so resourcecompiler has to write them instead of
+    /// keeping old ones it calls up to date. Folders are kept (another job may be writing into them). A file that can
+    /// not be deleted stays, gets a log line back, and the freshness check after the compile makes it an error.
+    /// </summary>
+    internal static List<string> RemoveOldOutputs(string buildDir, IReadOnlyList<string> outputs)
+    {
+        var lines = new List<string>();
+
+        foreach (var output in outputs)
+        {
+            try
+            {
+                SafeDelete(buildDir, output, pruneEmptyFolders: false);
+            }
+            catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+            {
+                lines.Add($"[Addon Studio] could not delete the old {output} before compiling: {exception.Message}");
+            }
+        }
+
+        return lines;
+    }
+
+    /// <summary>The error for an expected output this compile did not write: missing, or an old file left in place.</summary>
+    internal static string NotWrittenError(string buildDir, string output, bool compilerSaidUpToDate)
+    {
+        if (!File.Exists(Path.Combine(buildDir, Paths.ToNative(output))))
+        {
+            return $"expected output not written: {output}";
+        }
+
+        return compilerSaidUpToDate
+            ? $"old output not rebuilt: {output} (resourcecompiler called it up to date and kept the old file)"
+            : $"old output not rebuilt: {output} (it is older than this build)";
+    }
 
     private static bool IsFresh(string buildDir, string output, DateTime startedUtc)
     {
@@ -987,9 +1039,9 @@ public sealed partial class BuildService : IBuildService
 
     /// <summary>
     /// Deletes one build-relative file when it is really inside the build dir (no "..", no junction or symlink on the
-    /// way) and not one of Valve's, then removes the folders it left empty. True when a file was deleted.
+    /// way) and not one of Valve's, then (unless told not to) removes the folders it left empty. True when a file was deleted.
     /// </summary>
-    internal static bool SafeDelete(string buildDir, string buildRel)
+    internal static bool SafeDelete(string buildDir, string buildRel, bool pruneEmptyFolders = true)
     {
         if (!Paths.TryNormalizeRelative(buildRel, out var relative) || AssetRules.IsValveFile(relative))
         {
@@ -1020,7 +1072,7 @@ public sealed partial class BuildService : IBuildService
 
         var directory = folder;
 
-        while (Paths.IsUnder(buildDir, directory) && !AssetRules.IsValveFile(Paths.Relative(buildDir, directory)))
+        while (pruneEmptyFolders && Paths.IsUnder(buildDir, directory) && !AssetRules.IsValveFile(Paths.Relative(buildDir, directory)))
         {
             try
             {

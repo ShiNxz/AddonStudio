@@ -96,7 +96,8 @@ prebuilt/** filter=lfs diff=lfs merge=lfs -text
   - If a real folder is already there, the link state is `conflict`. We never delete it. Import (section 6.4) or `projects.link { backup: true }` renames it to `<addon>.addonstudio-backup-<yyyyMMdd-HHmmss>` first.
 - Build dir: `<cs2>/game/csgo_addons/<addon>`. The compiler writes there. Valve's own files there (`tools_asset_info.bin`, `readonly_tools_asset_info.bin`, `_bakeresourcecache/`, `_vrad3/`) are never touched.
 - Compile command: `settings.compilerArgs`, default `-nop4 -i "{input}"`, run from `<cs2>/game/bin/win64` with `CreateNoWindow`, per root file, `settings.compileParallelism` processes at once (default max(1, cores/2)), 5 minute timeout per file, process tree killed on cancel.
-- Success = exit code 0 and every expected output exists with a write time after the job started (or, when the compiler's summary says it skipped them as up to date, they exist at all). Each root's compiler output also goes to `.addonstudio/logs/<source with / as _>.log`. Error lines: lines containing `ERROR` or `FAILED` (upper case, so the "1 compiled, 0 failed" summary is not an error), or `error:` / `failed to compile` (any case) go in `errors`. `WARNING` (upper case) or `warning:` (any case) lines make the status `warning`.
+- Before a `new`, `changed` or `failed` root compiles, its expected outputs are deleted from the build dir (folders stay), so resourcecompiler has to write them: it has called changed sources up to date and kept their old outputs, which then got packed and published. A file that can not be deleted stays, and the success rule below makes it an error.
+- Success = exit code 0 and every expected output exists with a write time after the job started. Only for an `unchanged` root (a full build, or a files build of it) does the compiler's summary saying it skipped them as up to date also count, as long as they exist at all. A `new`, `changed` or `failed` root with an output that is missing or older than the job is an error (`expected output not written: <path>` or `old output not rebuilt: <path> (...)`), so publish refuses to upload. Each root's compiler output also goes to `.addonstudio/logs/<source with / as _>.log`. Error lines: lines containing `ERROR` or `FAILED` (upper case, so the "1 compiled, 0 failed" summary is not an error), or `error:` / `failed to compile` (any case) go in `errors`. `WARNING` (upper case) or `warning:` (any case) lines make the status `warning`.
 - Compiler fingerprint = size + mtime of resourcecompiler.exe + compilerArgs. When it changes every root counts as changed.
 
 ### Roots, dependencies, outputs
@@ -132,7 +133,7 @@ Dependencies: scan text roots for references and keep the ones that resolve to a
 
 ```jsonc
 {
-  "version": 1,
+  "version": 2, // another version loads as empty (every root new); 1 could record a stale output as ok
   "compilerFingerprint": "…",
   "roots": { "panorama/layout/custom_game/x.xml": { "hash": "…", "deps": ["…"], "outputs": ["…"], "result": "ok", "builtAt": "ISO" } },
   "prebuilt": { "models/x.vmdl_c": { "size": 123, "mtime": "ISO" } }

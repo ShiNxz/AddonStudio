@@ -216,6 +216,157 @@ public sealed class BuildServiceTests
         Assert.Equal(RootStatus.New, StatusOf(await service.PlanAsync(cs2.Repo), "panorama/layout/hud.xml"));
     }
 
+    [UnixFact]
+    public async Task Changed_and_new_roots_with_old_outputs_are_recompiled_even_when_the_compiler_calls_them_up_to_date()
+    {
+        using var cs2 = new FakeCs2();
+        cs2.WriteContent("panorama/styles/hud.css", ".card { top: 0; }");
+        var service = CreateService(cs2);
+        Assert.True((await service.RunAsync(cs2.Repo, BuildMode.Changed, null, NullEventSink.Instance)).Ok);
+        Assert.Equal(".card { top: 0; }", File.ReadAllText(cs2.BuildFile("panorama/styles/hud.vcss_c")));
+        AgeOutput(cs2, "panorama/styles/hud.vcss_c");
+
+        // from here on the compiler keeps any output that exists, like resourcecompiler did with the live addon
+        cs2.CompilerSkipsExisting = true;
+        cs2.WriteContent("panorama/styles/hud.css", ".card { bottom: 0; }");
+        // a new root whose output is already in the build folder from some older build
+        cs2.WriteContent("panorama/styles/feed.css", ".feed { left: 0; }");
+        cs2.WriteBuild("panorama/styles/feed.vcss_c", ".feed { old: 1; }");
+        AgeOutput(cs2, "panorama/styles/feed.vcss_c");
+
+        var plan = await service.PlanAsync(cs2.Repo);
+        Assert.Equal(RootStatus.Changed, StatusOf(plan, "panorama/styles/hud.css"));
+        Assert.Equal(RootStatus.New, StatusOf(plan, "panorama/styles/feed.css"));
+
+        var result = await service.RunAsync(cs2.Repo, BuildMode.Changed, null, NullEventSink.Instance);
+
+        Assert.True(result.Ok);
+        Assert.All(result.Items, item => Assert.Equal(ItemStatus.Ok, item.Status));
+        Assert.Equal(".card { bottom: 0; }", File.ReadAllText(cs2.BuildFile("panorama/styles/hud.vcss_c")));
+        Assert.Equal(".feed { left: 0; }", File.ReadAllText(cs2.BuildFile("panorama/styles/feed.vcss_c")));
+    }
+
+    [UnixFact]
+    public async Task Changed_root_whose_old_output_survives_the_compile_is_an_error()
+    {
+        if (OperatingSystem.IsWindows())
+        {
+            return;
+        }
+
+        using var cs2 = new FakeCs2();
+        cs2.WriteContent("panorama/styles/hud.css", ".card { top: 0; }");
+        var service = CreateService(cs2);
+        Assert.True((await service.RunAsync(cs2.Repo, BuildMode.Changed, null, NullEventSink.Instance)).Ok);
+        AgeOutput(cs2, "panorama/styles/hud.vcss_c");
+
+        cs2.CompilerSkipsExisting = true;
+        cs2.WriteContent("panorama/styles/hud.css", ".card { bottom: 0; }");
+
+        // the old output can not be deleted (a read-only folder here, a file the game holds open on Windows)
+        var folder = cs2.BuildFile("panorama/styles");
+        File.SetUnixFileMode(folder, UnixFileMode.UserRead | UnixFileMode.UserExecute);
+        BuildResult result;
+
+        try
+        {
+            result = await service.RunAsync(cs2.Repo, BuildMode.Changed, null, NullEventSink.Instance);
+        }
+        finally
+        {
+            File.SetUnixFileMode(folder, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+        }
+
+        // never a silent success: publish refuses a build with error items
+        Assert.False(result.Ok);
+        var item = Assert.Single(result.Items);
+        Assert.Equal(ItemStatus.Error, item.Status);
+        Assert.Empty(item.Outputs);
+        Assert.Equal(["old output not rebuilt: panorama/styles/hud.vcss_c (resourcecompiler called it up to date and kept the old file)"], item.Errors);
+        Assert.Contains("could not delete the old panorama/styles/hud.vcss_c", item.Log, StringComparison.Ordinal);
+        Assert.Equal(".card { top: 0; }", File.ReadAllText(cs2.BuildFile("panorama/styles/hud.vcss_c")));
+        Assert.Equal(RootStatus.Failed, StatusOf(await service.PlanAsync(cs2.Repo), "panorama/styles/hud.css"));
+
+        // once the file can go, the next build rewrites it
+        var retry = await service.RunAsync(cs2.Repo, BuildMode.Changed, null, NullEventSink.Instance);
+        Assert.True(retry.Ok);
+        Assert.Equal(".card { bottom: 0; }", File.ReadAllText(cs2.BuildFile("panorama/styles/hud.vcss_c")));
+    }
+
+    [UnixFact]
+    public async Task Changed_root_whose_output_the_compiler_does_not_write_is_an_error()
+    {
+        using var cs2 = new FakeCs2();
+        cs2.WriteContent("panorama/styles/hud.css", ".card { top: 0; }");
+        var service = CreateService(cs2);
+        Assert.True((await service.RunAsync(cs2.Repo, BuildMode.Changed, null, NullEventSink.Instance)).Ok);
+
+        // a compiler that exits 0 and says it skipped the file, without writing anything
+        File.WriteAllText(cs2.Compiler, "#!/bin/sh\necho \"0 compiled, 0 failed, 1 skipped\"\nexit 0\n");
+        cs2.WriteContent("panorama/styles/hud.css", ".card { bottom: 0; }");
+
+        var result = await service.RunAsync(cs2.Repo, BuildMode.Changed, null, NullEventSink.Instance);
+
+        Assert.False(result.Ok);
+        var item = Assert.Single(result.Items);
+        Assert.Equal(ItemStatus.Error, item.Status);
+        Assert.Equal(["expected output not written: panorama/styles/hud.vcss_c"], item.Errors);
+        Assert.False(File.Exists(cs2.BuildFile("panorama/styles/hud.vcss_c")));
+    }
+
+    [UnixFact]
+    public async Task Unchanged_root_the_compiler_calls_up_to_date_is_kept_on_a_full_build()
+    {
+        using var cs2 = new FakeCs2();
+        cs2.WriteContent("panorama/styles/hud.css", ".card { top: 0; }");
+        var service = CreateService(cs2);
+        Assert.True((await service.RunAsync(cs2.Repo, BuildMode.Changed, null, NullEventSink.Instance)).Ok);
+        AgeOutput(cs2, "panorama/styles/hud.vcss_c");
+        var before = File.GetLastWriteTimeUtc(cs2.BuildFile("panorama/styles/hud.vcss_c"));
+
+        cs2.CompilerSkipsExisting = true;
+        var result = await service.RunAsync(cs2.Repo, BuildMode.Full, null, NullEventSink.Instance);
+
+        Assert.True(result.Ok);
+        var item = Assert.Single(result.Items);
+        Assert.Equal(ItemStatus.Ok, item.Status);
+        Assert.Equal(["panorama/styles/hud.vcss_c"], item.Outputs);
+        Assert.Equal(before, File.GetLastWriteTimeUtc(cs2.BuildFile("panorama/styles/hud.vcss_c")));
+    }
+
+    [UnixFact]
+    public async Task Build_state_from_version_1_is_dropped_so_its_stale_outputs_are_rebuilt()
+    {
+        using var cs2 = new FakeCs2();
+        cs2.WriteContent("panorama/styles/hud.css", ".card { bottom: 0; }");
+        var service = CreateService(cs2);
+        Assert.True((await service.RunAsync(cs2.Repo, BuildMode.Changed, null, NullEventSink.Instance)).Ok);
+
+        // what a version 1 build could leave: the new hash recorded as ok next to the old output
+        cs2.WriteBuild("panorama/styles/hud.vcss_c", ".card { top: 0; }");
+        AgeOutput(cs2, "panorama/styles/hud.vcss_c");
+        var stateFile = StatePaths.BuildState(cs2.Repo);
+        var json = File.ReadAllText(stateFile);
+        var downgraded = System.Text.RegularExpressions.Regex.Replace(json, "\"version\"\\s*:\\s*2", "\"version\":1");
+        Assert.NotEqual(json, downgraded);
+        File.WriteAllText(stateFile, downgraded);
+
+        cs2.CompilerSkipsExisting = true;
+        Assert.Equal(RootStatus.New, StatusOf(await service.PlanAsync(cs2.Repo), "panorama/styles/hud.css"));
+
+        var result = await service.RunAsync(cs2.Repo, BuildMode.Changed, null, NullEventSink.Instance);
+
+        Assert.True(result.Ok);
+        Assert.Equal(".card { bottom: 0; }", File.ReadAllText(cs2.BuildFile("panorama/styles/hud.vcss_c")));
+        Assert.Equal(BuildState.CurrentVersion, System.Text.Json.Nodes.JsonNode.Parse(File.ReadAllText(stateFile))!["version"]!.GetValue<int>());
+    }
+
+    /// <summary>Moves a build output's write time into the past, so it is clearly older than the next compile job.</summary>
+    private static void AgeOutput(FakeCs2 cs2, string buildRel)
+    {
+        File.SetLastWriteTimeUtc(cs2.BuildFile(buildRel), DateTime.UtcNow.AddMinutes(-10));
+    }
+
     [Fact]
     public void Compiler_up_to_date_summary_counts_as_success()
     {
