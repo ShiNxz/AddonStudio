@@ -26,11 +26,14 @@ public sealed record BuildStatePrebuilt(long Size, DateTimeOffset Mtime);
 /// </summary>
 public sealed class BuildState
 {
-    /// <summary>
-    /// 2: version 1 builds could record a changed root as ok while resourcecompiler kept its old output (it called it
-    /// up to date), and later builds then skipped it as unchanged. Those states are dropped, so every root builds once.
-    /// </summary>
     public const int CurrentVersion = 2;
+
+    /// <summary>
+    /// Version 1 builds could record a changed root as ok while resourcecompiler kept its old output (it called it up to
+    /// date), and later builds then skipped it as unchanged. Such a state loads with every root's hash cleared: every
+    /// root counts as changed and rebuilds once, and the recorded outputs still let deleted roots be cleaned up.
+    /// </summary>
+    private const int UntrustedHashesVersion = 1;
 
     public int Version { get; set; } = CurrentVersion;
 
@@ -40,17 +43,21 @@ public sealed class BuildState
 
     public Dictionary<string, BuildStatePrebuilt> Prebuilt { get; set; } = new(Paths.RelComparer);
 
-    /// <summary>The repo's build state, an empty one when the file is missing, broken or from another version.</summary>
+    /// <summary>
+    /// The repo's build state, an empty one when the file is missing, broken or from an unknown version. A version 1
+    /// file loads with no root hashes (see <see cref="UntrustedHashesVersion"/>).
+    /// </summary>
     public static BuildState Load(string repo)
     {
         var file = Json.TryReadFile<FileModel>(StatePaths.BuildState(repo));
         var state = new BuildState();
 
-        if (file is not { Version: CurrentVersion })
+        if (file is not { Version: CurrentVersion or UntrustedHashesVersion })
         {
             return state;
         }
 
+        var trustHashes = file.Version == CurrentVersion;
         state.CompilerFingerprint = file.CompilerFingerprint;
 
         foreach (var (path, root) in file.Roots ?? new Dictionary<string, BuildStateRoot>())
@@ -59,7 +66,7 @@ public sealed class BuildState
             {
                 state.Roots[normalized] = root with
                 {
-                    Hash = root.Hash ?? "",
+                    Hash = trustHashes ? root.Hash ?? "" : "",
                     Deps = root.Deps ?? [],
                     Outputs = root.Outputs ?? [],
                 };

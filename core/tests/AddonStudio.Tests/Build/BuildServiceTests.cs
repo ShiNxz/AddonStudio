@@ -335,10 +335,11 @@ public sealed class BuildServiceTests
     }
 
     [UnixFact]
-    public async Task Build_state_from_version_1_is_dropped_so_its_stale_outputs_are_rebuilt()
+    public async Task Build_state_from_version_1_rebuilds_every_root_and_still_cleans_deleted_ones()
     {
         using var cs2 = new FakeCs2();
         cs2.WriteContent("panorama/styles/hud.css", ".card { bottom: 0; }");
+        cs2.WriteContent("panorama/styles/old.css", ".old {}");
         var service = CreateService(cs2);
         Assert.True((await service.RunAsync(cs2.Repo, BuildMode.Changed, null, NullEventSink.Instance)).Ok);
 
@@ -350,14 +351,21 @@ public sealed class BuildServiceTests
         var downgraded = System.Text.RegularExpressions.Regex.Replace(json, "\"version\"\\s*:\\s*2", "\"version\":1");
         Assert.NotEqual(json, downgraded);
         File.WriteAllText(stateFile, downgraded);
+        // and a source removed before the first build with the new version
+        File.Delete(cs2.ContentFile("panorama/styles/old.css"));
 
         cs2.CompilerSkipsExisting = true;
-        Assert.Equal(RootStatus.New, StatusOf(await service.PlanAsync(cs2.Repo), "panorama/styles/hud.css"));
+        var plan = await service.PlanAsync(cs2.Repo);
+        Assert.Equal(RootStatus.Changed, StatusOf(plan, "panorama/styles/hud.css"));
+        Assert.Equal(RootStatus.Deleted, StatusOf(plan, "panorama/styles/old.css"));
 
         var result = await service.RunAsync(cs2.Repo, BuildMode.Changed, null, NullEventSink.Instance);
 
         Assert.True(result.Ok);
         Assert.Equal(".card { bottom: 0; }", File.ReadAllText(cs2.BuildFile("panorama/styles/hud.vcss_c")));
+        // the old output of the removed source is not left behind to be packed
+        Assert.Equal(["panorama/styles/old.vcss_c"], result.Removed);
+        Assert.False(File.Exists(cs2.BuildFile("panorama/styles/old.vcss_c")));
         Assert.Equal(BuildState.CurrentVersion, System.Text.Json.Nodes.JsonNode.Parse(File.ReadAllText(stateFile))!["version"]!.GetValue<int>());
     }
 

@@ -133,7 +133,7 @@ Dependencies: scan text roots for references and keep the ones that resolve to a
 
 ```jsonc
 {
-  "version": 2, // another version loads as empty (every root new); 1 could record a stale output as ok
+  "version": 2, // 1 could record a stale output as ok: it loads with every hash cleared (all changed); unknown = empty
   "compilerFingerprint": "…",
   "roots": { "panorama/layout/custom_game/x.xml": { "hash": "…", "deps": ["…"], "outputs": ["…"], "result": "ok", "builtAt": "ISO" } },
   "prebuilt": { "models/x.vmdl_c": { "size": 123, "mtime": "ISO" } }
