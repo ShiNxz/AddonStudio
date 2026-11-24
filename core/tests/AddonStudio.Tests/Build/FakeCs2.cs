@@ -6,7 +6,8 @@ namespace AddonStudio.Tests.Build;
 
 /// <summary>
 /// A fake CS2 install and project in a temp folder: game/bin/win64/resourcecompiler.exe is a sh script that writes the
-/// expected output for its -i input (fails on files containing FAILME, warns on WARNME, hangs on SLOWME),
+/// expected output for its -i input (fails on files containing FAILME, warns on WARNME, hangs on SLOWME, and with
+/// <see cref="CompilerSkipsExisting"/> leaves an existing output alone and reports it skipped),
 /// content/csgo_addons/&lt;addon&gt; is a symlink to the repo's content/, game/csgo/gameinfo.gi has packing rules.
 /// </summary>
 public sealed class FakeCs2 : IDisposable
@@ -36,6 +37,10 @@ public sealed class FakeCs2 : IDisposable
           *.png) out="${out%.png}_png.vtex_c" ;;
           *) out="${out}_c" ;;
         esac
+        if [ -f "$(dirname "$0")/skip-existing" ] && [ -f "$out" ]; then
+          echo "0 compiled, 0 failed, 1 skipped"
+          exit 0
+        fi
         mkdir -p "$(dirname "$out")"
         cat "$in" > "$out"
         echo "1 compiled, 0 failed, 0 skipped"
@@ -109,6 +114,28 @@ public sealed class FakeCs2 : IDisposable
     public FakeSettings Settings { get; }
 
     public WorkshopConfig Config { get; set; } = WorkshopConfig.CreateDefault(AddonName, "Test Addon");
+
+    /// <summary>
+    /// The fake compiler acts like resourcecompiler calling a file up to date whatever its source says: an input whose
+    /// output already exists is not compiled, the output keeps its old bytes and the summary says "1 skipped".
+    /// </summary>
+    public bool CompilerSkipsExisting
+    {
+        get => File.Exists(SkipExistingFlag);
+        set
+        {
+            if (value)
+            {
+                File.WriteAllText(SkipExistingFlag, "");
+            }
+            else
+            {
+                File.Delete(SkipExistingFlag);
+            }
+        }
+    }
+
+    private string SkipExistingFlag => Path.Combine(Path.GetDirectoryName(Compiler)!, "skip-existing");
 
     public ProjectPaths Paths => new(Repo, Content, Prebuilt, StatePaths.Dir(Repo), AddonName, Cs2, LinkPath, BuildDir);
 

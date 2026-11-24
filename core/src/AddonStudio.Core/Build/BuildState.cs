@@ -26,7 +26,11 @@ public sealed record BuildStatePrebuilt(long Size, DateTimeOffset Mtime);
 /// </summary>
 public sealed class BuildState
 {
-    public const int CurrentVersion = 1;
+    /// <summary>
+    /// 2: version 1 builds could record a changed root as ok while resourcecompiler kept its old output (it called it
+    /// up to date), and later builds then skipped it as unchanged. Those states are dropped, so every root builds once.
+    /// </summary>
+    public const int CurrentVersion = 2;
 
     public int Version { get; set; } = CurrentVersion;
 
