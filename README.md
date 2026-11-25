@@ -63,17 +63,17 @@ Making a CS2 Workshop addon usually means two folders kept in sync by hand (`con
 
 ```mermaid
 flowchart LR
-  src["content/<br/>your sources, in git"] -->|"resourcecompiler.exe<br/>changed files only"| build["build folder<br/>game/csgo_addons/&lt;addon&gt;"]
-  pre["prebuilt/<br/>compiled files without source"] -->|"copied as is"| build
+  src["content/<br/>your sources, in git"] -->|"resourcecompiler<br/>changed files only"| build["build folder"]
+  pre["prebuilt/<br/>compiled, no source"] -->|"copied as is"| build
   build -->|"pack"| vpk["VPK<br/>100 MB chunks"]
-  vpk -->|"upload through the<br/>running Steam client"| ws["Workshop item"]
-  ws -.->|"deploy tag on the commit"| src
+  vpk -->|"Steam client"| ws["Workshop item"]
 ```
 
-- Your project's `content/` folder is linked into CS2's `content/csgo_addons/<addon>`, so Valve's compiler finds it where it expects it. Your repo can live anywhere.
+- The build folder is CS2's own `game/csgo_addons/<addon>`. Your project's `content/` folder is linked into CS2's `content/csgo_addons/<addon>`, so Valve's compiler finds it where it expects it. Your repo can live anywhere.
 - Models taken from other Workshop items, compiled maps and anything else you only have in compiled form go in `prebuilt/` and are packed as they are.
 - The VPK gets everything in the build folder except Valve's tool cache, junk and raw sources CS2 never loads. Prefer Valve's own whitelist behaviour? Turn on "Valve whitelist only" in the project's settings.
 - Uploads go through the Steam client that is already running and logged in. No passwords or Steam Guard codes go through the app.
+- Every publish tags the commit (`deploy/<time>`, plus `v<version>` when you give one), so History shows what went live.
 
 ## Getting started
 
