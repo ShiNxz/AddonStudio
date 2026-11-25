@@ -17,7 +17,7 @@ Compile and publish only work on Windows (Valve's `resourcecompiler.exe` and the
    - Optional: put an empty `portable.txt` next to `AddonStudio.exe` to keep settings in a `data` folder beside it instead (for a USB stick).
 6. It needs the Microsoft Edge WebView2 Runtime. Windows 11 and up-to-date Windows 10 already have it; if the window stays blank, install it from https://developer.microsoft.com/microsoft-edge/webview2/.
 
-A tag `app-v<version>` (for example `app-v0.1.0`) runs the same build and puts `AddonStudio-<version>-win-x64.exe` on a draft release.
+A tag `app-v<version>` (for example `app-v0.1.0`) runs the same build and puts `AddonStudio.exe` and `AddonStudio-<version>-win-x64.exe` on a draft release.
 
 ### Or build it on the PC
 
