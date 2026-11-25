@@ -1,116 +1,142 @@
-# Addon Studio
+<p align="center">
+  <img src="app/src-tauri/icons/128x128@2x.png" width="96" height="96" alt="Addon Studio icon">
+</p>
 
-A Windows desktop app for CS2 Steam Workshop addons, with each addon kept as a git repo. You edit sources, commit, see history, build only what changed, see exactly what goes into the VPK, and publish to the Workshop with one button (or automatically on a version commit).
+<h1 align="center">Addon Studio</h1>
 
-It is a Tauri 2 app (React + HeroUI v3, styled like a Windows 11 app) with a .NET 10 core that is embedded in the exe and runs as a child process. The full contract between the parts is [docs/SPEC.md](docs/SPEC.md).
+<p align="center">
+  Your CS2 Workshop addons as git repos.<br>
+  Build only what changed, see exactly what goes into the VPK, publish with one click.
+</p>
 
-## The pipeline
+<p align="center">
+  <a href="https://github.com/ShiNxz/AddonStudio/releases"><img src="https://img.shields.io/badge/Download-AddonStudio.exe-4CC2FF?style=for-the-badge" alt="Download AddonStudio.exe"></a>
+</p>
 
-```
-content/ (sources, in git)
-   | resourcecompiler.exe, only the roots that changed
-   v
-<CS2>/game/csgo_addons/<addon>/      build dir (Valve's location, regenerated, never in git)
-   ^ prebuilt/ copied in as-is (compiled files without sources: models, maps...)
-   | pack: everything in the build dir minus junk and sources (VPK v2, 100 MB chunks, 3 GiB cap by default)
-   v
-<id>_dir.vpk + _000.vpk... + publish_data.txt
-   | upload through the running Steam client (ISteamUGC)
-   v
-Steam Workshop item -> Steam processes it -> live
-```
+<p align="center">
+  <img src="https://img.shields.io/badge/Windows-10%20%7C%2011-0078D4" alt="Windows 10 and 11">
+  <a href="https://github.com/ShiNxz/AddonStudio/actions/workflows/app.yml"><img src="https://img.shields.io/github/actions/workflow/status/ShiNxz/AddonStudio/app.yml?label=build" alt="Build status"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/github/license/ShiNxz/AddonStudio" alt="MIT license"></a>
+</p>
 
-- `content/` is linked into `<CS2>/content/csgo_addons/<addon>` with a directory junction, so the compiler sees the addon where it expects it.
-- A file counts as changed when its bytes or any file it references change (images, includes, materials...). Changing the compiler or its arguments rebuilds everything.
-- The VPK gets every file in the build dir: everything the project compiles plus `prebuilt/`. Left out are Valve's tool cache, hidden files, junk (`Thumbs.db`, `*.tmp`, `*.log`...) and source files CS2 never loads (`.psd`, `.fbx`, raw panorama `.xml`/`.css`/`.js`...). Valve's own workshop manager only packs the folders `gameinfo.gi` whitelists (`panorama/.../custom_game`, `overheadmaps`, `map_icons` and the like) and drops the rest without a word; turn on "Valve whitelist only" in a project's Settings to get that behaviour. Either way the Package tab lists the files the whitelist leaves out, and `pack.include` / `pack.exclude` in `workshop.json` work on top.
-- Publishing tags the commit (`deploy/<time>`, optional `v<version>`), so History shows what went live when.
-- Build and publish run on your PC. Compiling and publishing need Windows, CS2 with the Workshop Tools and a running Steam client.
+<p align="center">
+  <img src="docs/screenshots/changes.png" alt="The Changes tab: staged and changed files, LFS badges, and a commit named v1.5.0 that publishes to the Workshop">
+</p>
 
-## Repo layout
+## Why
 
-```
-docs/SPEC.md               the contract every part follows
-docs/WINDOWS-TESTING.md    step-by-step test on Windows, what to send back when it fails
-docs/GITHUB-LFS.md         putting an addon on GitHub with Git LFS
-core/AddonStudio.slnx
-core/src/AddonStudio.Core/ services: Env, Settings, Projects, Import, Build, Pack, Publish, Steam, Git, Watch
-core/src/AddonStudio.Host/ addonstudio-core: JSON-lines RPC on stdin/stdout + CLI verbs
-core/tests/                xunit tests
-app/                       Vite + React 19 + TypeScript + Tailwind v4 + HeroUI v3
-app/src/rpc/               typed RPC client, Tauri transport (talks to the embedded core through Rust commands) and a mock transport
-app/src-tauri/             Tauri 2 shell: window, embedded core (build.rs + src/core.rs), plugins (dialog, opener), no installer
-scripts/                   build-sidecar.ps1 / build-sidecar.sh, package-exe.ps1, make-icon.mjs
-.github/workflows/app.yml  builds AddonStudio.exe
-```
+Making a CS2 Workshop addon usually means two folders kept in sync by hand (`content/` with your sources and `game/` with what the compiler wrote), Valve's workshop manager to upload it, and no history at all. Addon Studio keeps the sources in git and treats everything else as build output:
 
-## Development
+- **One folder, in git.** Only `content/` (and `prebuilt/` for compiled files you have no source for) is tracked. The build folder is regenerated, never edited.
+- **Builds only what changed.** A file is rebuilt when it, or anything it references (images, includes, materials), changes. Every file gets its own result and compiler log, so a stylesheet that fails to compile can't slip through unnoticed.
+- **You see the VPK before it ships.** Every file, its size, where it came from, and what changed since the last upload.
+- **Publishing is one click**, or automatic on a commit named `v1.2.3`. Each publish tags the commit, so History shows what went live and when.
 
-Needs .NET 10 SDK, Node 24 and Rust stable. macOS and Linux work for everything except compiling and publishing addons: those calls fail with `not_windows`, `cs2_missing`, `tools_missing` or `steam_unavailable`.
+## A quick tour
 
-### UI only, in a browser (mock mode)
+<table>
+  <tr>
+    <td width="50%"><img src="docs/screenshots/build.png" alt="Build tab: a build running file by file, one stylesheet failed with 2 errors"></td>
+    <td width="50%"><img src="docs/screenshots/package.png" alt="Package tab: size against the cap, files by type, what changed since the last publish"></td>
+  </tr>
+  <tr>
+    <td><b>Build.</b> Changed files only, live per-file progress, a log for every file, auto-build on save.</td>
+    <td><b>Package.</b> What goes into the VPK, by type and origin, against the size cap, diffed with the last publish.</td>
+  </tr>
+  <tr>
+    <td><img src="docs/screenshots/publish.png" alt="Publish tab: change note, version, warnings, and the item's live status on Steam"></td>
+    <td><img src="docs/screenshots/history.png" alt="History tab: commits with a v1.4.0 tag and a Deployed badge linking to the Workshop item"></td>
+  </tr>
+  <tr>
+    <td><b>Publish.</b> Change note, version, warnings before you upload, and the item's status on Steam.</td>
+    <td><b>History.</b> Every commit, version tags and a Deployed badge on the commits that went live.</td>
+  </tr>
+</table>
 
-```sh
-cd app
-npm install
-npm run dev
-```
+<p align="center">
+  <img src="docs/screenshots/github-repo.png" width="75%" alt="Create GitHub repo dialog: owner (account or organization), repo name, private or public">
+  <br>
+  <sub>Put a project on GitHub from the app: your account or any of your organizations, public or private, Git LFS for the big files.</sub>
+</p>
 
-Open http://localhost:1420. Without Tauri the app uses the mock transport (`app/src/rpc/transport-mock.ts`) with demo projects, so every screen works without the core.
+## How it works
 
-### The real app (Tauri dev)
-
-Build the core once (and again after core changes; the Tauri build embeds it), then start Tauri:
-
-```sh
-scripts/build-sidecar.sh            # Windows: powershell -ExecutionPolicy Bypass -File scripts\build-sidecar.ps1
-cd app
-npm run tauri dev
-```
-
-`build-sidecar` publishes `core/src/AddonStudio.Host` as a self-contained single file for this machine (target triple from `rustc -vV`, or pass a rid like `win-x64`) and copies it to `app/src-tauri/binaries/addonstudio-core-<triple>[.exe]`, where `app/src-tauri/build.rs` picks it up to embed.
-
-### Core
-
-```sh
-dotnet build core/AddonStudio.slnx
-dotnet test core/AddonStudio.slnx
+```mermaid
+flowchart LR
+  src["content/<br/>your sources, in git"] -->|"resourcecompiler.exe<br/>changed files only"| build["build folder<br/>game/csgo_addons/&lt;addon&gt;"]
+  pre["prebuilt/<br/>compiled files without source"] -->|"copied as is"| build
+  build -->|"pack"| vpk["VPK<br/>100 MB chunks"]
+  vpk -->|"upload through the<br/>running Steam client"| ws["Workshop item"]
+  ws -.->|"deploy tag on the commit"| src
 ```
 
-Frontend logic tests (node:test through jiti): `cd app && npm test`.
+- Your project's `content/` folder is linked into CS2's `content/csgo_addons/<addon>`, so Valve's compiler finds it where it expects it. Your repo can live anywhere.
+- Models taken from other Workshop items, compiled maps and anything else you only have in compiled form go in `prebuilt/` and are packed as they are.
+- The VPK gets everything in the build folder except Valve's tool cache, junk and raw sources CS2 never loads. Prefer Valve's own whitelist behaviour? Turn on "Valve whitelist only" in the project's settings.
+- Uploads go through the Steam client that is already running and logged in. No passwords or Steam Guard codes go through the app.
 
-The core also has CLI verbs that print JSON, handy on Windows without the UI:
+## Getting started
+
+**You need:** Windows 10 or 11, CS2 with the **Counter-Strike 2 Workshop Tools** DLC (Steam > CS2 > Properties > DLC), Steam running, and [Git for Windows](https://git-scm.com/download/win) (it includes Git LFS). The [GitHub CLI](https://cli.github.com) is optional, for creating repos and releases from the app.
+
+1. **Download `AddonStudio.exe`** from [Releases](https://github.com/ShiNxz/AddonStudio/releases). It is one file: no installer, nothing next to it. Windows SmartScreen may warn because it is not signed: More info > Run anyway.
+2. **Open Doctor** in the sidebar. It checks CS2, the Workshop Tools, Steam, git, LFS and the GitHub CLI and tells you how to fix whatever is missing.
+3. **Add a project.** Import an addon you already have in CS2 (it copies the sources, decompiles what comes back cleanly and puts the rest in `prebuilt/`), clone one from git, or start a new one.
+4. **Build**, check it in game, then **publish**. Try a new unlisted item first before you update one people are subscribed to.
+
+The full walk-through, with what to send back when something fails, is in [docs/WINDOWS-TESTING.md](docs/WINDOWS-TESTING.md).
+
+## An addon project
 
 ```
-addonstudio-core doctor
-addonstudio-core plan <repo>
-addonstudio-core build <repo> [--full]
-addonstudio-core pack <repo> [--contents | --out <dir>]
-addonstudio-core publish <repo> --note "..." [--version x.y.z]
-addonstudio-core status <repo>
+my-hud/
+  workshop.json    title, Workshop id, visibility, tags, pack rules, auto-build and auto-publish
+  content/         sources: panorama xml/css/js, images, sounds, vmat, vmdl, vpcf...
+  prebuilt/        compiled files without source, packed as they are
+  preview.png      Workshop thumbnail
 ```
 
-### Checks
-
-```sh
-cd app && npx tsc --noEmit && npx vite build
-cd app/src-tauri && cargo check
+```jsonc
+{
+  "addon": "my_hud",
+  "workshopId": "3389501123",          // filled in after the first publish
+  "title": "My HUD",
+  "visibility": "public",
+  "tags": ["Custom"],
+  "autoBuild": true,                   // rebuild changed files when you save
+  "autoPublish": { "enabled": true, "pattern": "^v(\\d+\\.\\d+\\.\\d+)\\b" }
+}
 ```
 
-## Building the app (one exe)
+With `autoPublish` on, a commit called `v1.5.0 Kill feed icons` builds, uploads, tags `v1.5.0` and (if you want) attaches the VPK to a GitHub release.
 
-Addon Studio ships as a single `AddonStudio.exe`, no installer and no extra files. The .NET core is zstd-compressed into it at build time (`app/src-tauri/build.rs`) and unpacked once per version to `%LOCALAPPDATA%\dev.addonstudio.app\core\` on first start (`app/src-tauri/src/core.rs`), which then runs it and bridges its stdin/stdout to the UI. Settings live in `%APPDATA%\AddonStudio`; an empty `portable.txt` next to the exe moves them to a `data` folder beside it. It needs the WebView2 Runtime, which Windows 10 and 11 normally have.
+## GitHub and Git LFS
 
-On Windows: `scripts\build-sidecar.ps1 -Rid win-x64`, then `npm ci` and `npm run tauri build -- --no-bundle` in `app/`, then `scripts\package-exe.ps1`. The exe lands in `dist/AddonStudio.exe`.
+Images, sounds, models and everything in `prebuilt/` go through Git LFS, so a 3 GB addon still clones fine. GitHub gives 10 GiB of LFS storage free, then about $0.07 per GiB a month. Setup and costs: [docs/GITHUB-LFS.md](docs/GITHUB-LFS.md).
 
-CI does the same: [.github/workflows/app.yml](.github/workflows/app.yml) runs on "Run workflow" and on tags `app-v*`. It uploads `AddonStudio.exe` as an artifact (not zipped), runs the embedded-core test on Windows, and for a tag attaches `AddonStudio-<version>-win-x64.exe` to a draft release. A second job runs the core tests and the frontend build on Linux. The app version comes from `app/package.json`.
+## FAQ
 
-## App icon
+**Does it run on macOS or Linux?**
+No. Valve's resource compiler and the Steam Workshop upload only work on Windows, and Addon Studio does not use Wine.
 
-`scripts/make-icon.mjs` draws the 1024 px source (`app/src-tauri/icons/app-icon.png`). To regenerate the set:
+**Can an addon be bigger than 3 GB?**
+3 GB is Valve's own upload limit and the default. You can raise the cap in Settings, but bigger uploads are untested.
 
-```sh
-node scripts/make-icon.mjs
-cd app && npx tauri icon src-tauri/icons/app-icon.png
-```
+**Can it compile maps?**
+No, maps need Hammer. Compile them there and drop the compiled map into `prebuilt/`.
 
-Then delete the `android/`, `ios/` and `Square*`/`StoreLogo` files it adds, the app is desktop only.
+**Where does it keep its data?**
+Settings in `%APPDATA%\AddonStudio`. The exe unpacks its .NET core once per version to `%LOCALAPPDATA%\dev.addonstudio.app\core\`. Put an empty `portable.txt` next to the exe to keep settings beside it instead.
+
+**Is this made by Valve?**
+No. Addon Studio is not affiliated with Valve. Valve's compiler is not included: it comes from your own CS2 Workshop Tools install.
+
+## Building from source
+
+Tauri 2 (React + HeroUI v3) for the UI, a .NET 10 core for the build, pack and upload work, embedded in the exe. See [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) for the layout, mock mode for UI work in a browser, and how CI builds the exe. [docs/SPEC.md](docs/SPEC.md) is the contract between the parts.
+
+## Credits
+
+Packing and Steam upload follow [CS2 Workshop Manager](https://github.com/Angel-foxxo/CS2-Workshop-Manager) by Angel. VPKs are written with [ValvePak](https://github.com/ValveResourceFormat/ValvePak) and imports decompiled with [ValveResourceFormat](https://github.com/ValveResourceFormat/ValveResourceFormat). Details in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+
+[MIT](LICENSE)

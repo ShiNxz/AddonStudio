@@ -243,6 +243,13 @@ function buildHistory(
   const commits: GitCommit[] = [];
   const files = new Map<string, GitCommitFile[]>();
   let time = NOW - 2 * HOUR;
+  // every subject once before any repeats, in a seeded order, so the demo history reads like a real one
+  const order = [...subjects];
+  for (let i = order.length - 1; i > 0; i--) {
+    const j = Math.floor(rand() * (i + 1));
+    [order[i], order[j]] = [order[j]!, order[i]!];
+  }
+  const subjectAt = (index: number) => order[index % order.length]!;
 
   for (let index = 0; index < total; index++) {
     const hash = hex(40);
@@ -260,7 +267,7 @@ function buildHistory(
     commits.push({
       hash,
       short: hash.slice(0, 7),
-      subject: version ? `v${version} ${deploy?.note ?? pick(subjects)}` : pick(subjects),
+      subject: version ? `v${version} ${deploy?.note ?? subjectAt(index)}` : subjectAt(index),
       body: rand() < 0.3 ? "Tested on a local listen server with 10 bots.\nNo layout changes on 16:10." : "",
       authorName: pick(AUTHORS),
       date: iso(time),
