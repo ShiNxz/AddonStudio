@@ -78,7 +78,7 @@ Addon Studio ships as a single `AddonStudio.exe`, no installer and no extra file
 
 On Windows: `scripts\build-sidecar.ps1 -Rid win-x64`, then `npm ci` and `npm run tauri build -- --no-bundle` in `app/`, then `scripts\package-exe.ps1`. The exe lands in `dist/AddonStudio.exe`.
 
-CI does the same: [.github/workflows/app.yml](../.github/workflows/app.yml) runs on "Run workflow" and on tags `app-v*`. It uploads `AddonStudio.exe` as an artifact (not zipped), runs the embedded-core test on Windows, and for a tag attaches `AddonStudio-<version>-win-x64.exe` to a draft release. A second job runs the core tests and the frontend build on Linux. The app version comes from `app/package.json`.
+CI does the same: [.github/workflows/app.yml](../.github/workflows/app.yml) runs on "Run workflow" and on tags `app-v*`. It uploads `AddonStudio.exe` as an artifact (not zipped), runs the embedded-core test on Windows, and for a tag attaches `AddonStudio.exe` and `AddonStudio-<version>-win-x64.exe` to a draft release. A second job runs the core tests and the frontend build on Linux. The app version comes from `app/package.json`.
 
 ## App icon
 

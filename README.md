@@ -10,10 +10,11 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/ShiNxz/AddonStudio/releases"><img src="https://img.shields.io/badge/Download-AddonStudio.exe-4CC2FF?style=for-the-badge" alt="Download AddonStudio.exe"></a>
+  <a href="https://github.com/ShiNxz/AddonStudio/releases/latest/download/AddonStudio.exe"><img src="https://img.shields.io/badge/Download-AddonStudio.exe-4CC2FF?style=for-the-badge" alt="Download AddonStudio.exe"></a>
 </p>
 
 <p align="center">
+  <a href="https://github.com/ShiNxz/AddonStudio/releases/latest"><img src="https://img.shields.io/github/v/release/ShiNxz/AddonStudio?label=release" alt="Latest release"></a>
   <img src="https://img.shields.io/badge/Windows-10%20%7C%2011-0078D4" alt="Windows 10 and 11">
   <a href="https://github.com/ShiNxz/AddonStudio/actions/workflows/app.yml"><img src="https://img.shields.io/github/actions/workflow/status/ShiNxz/AddonStudio/app.yml?label=build" alt="Build status"></a>
   <a href="LICENSE"><img src="https://img.shields.io/github/license/ShiNxz/AddonStudio" alt="MIT license"></a>
@@ -79,7 +80,7 @@ flowchart LR
 
 **You need:** Windows 10 or 11, CS2 with the **Counter-Strike 2 Workshop Tools** DLC (Steam > CS2 > Properties > DLC), Steam running, and [Git for Windows](https://git-scm.com/download/win) (it includes Git LFS). The [GitHub CLI](https://cli.github.com) is optional, for creating repos and releases from the app.
 
-1. **Download `AddonStudio.exe`** from [Releases](https://github.com/ShiNxz/AddonStudio/releases). It is one file: no installer, nothing next to it. Windows SmartScreen may warn because it is not signed: More info > Run anyway.
+1. **Download [`AddonStudio.exe`](https://github.com/ShiNxz/AddonStudio/releases/latest/download/AddonStudio.exe)** from the [latest release](https://github.com/ShiNxz/AddonStudio/releases/latest). It is one file: no installer, nothing next to it. Windows SmartScreen may warn because it is not signed: More info > Run anyway.
 2. **Open Doctor** in the sidebar. It checks CS2, the Workshop Tools, Steam, git, LFS and the GitHub CLI and tells you how to fix whatever is missing.
 3. **Add a project.** Import an addon you already have in CS2 (it copies the sources, decompiles what comes back cleanly and puts the rest in `prebuilt/`), clone one from git, or start a new one.
 4. **Build**, check it in game, then **publish**. Try a new unlisted item first before you update one people are subscribed to.
